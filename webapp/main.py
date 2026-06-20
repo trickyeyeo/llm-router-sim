@@ -180,6 +180,8 @@ async def simulate(
                         sim_stateless._handle_prefill_complete(event.request_id, event.block_id)
                     elif event.event_type.value == "decode_complete":
                         sim_stateless._handle_decode_complete(event.request_id)
+                    elif event.event_type.value == "transfer_complete":
+                        sim_stateless._handle_transfer_complete(event)
                     elif event.event_type.value == "heartbeat":
                         sim_stateless._send_heartbeats()
                         sim_stateless._schedule_heartbeat(
@@ -198,6 +200,8 @@ async def simulate(
                         sim_stateful._handle_prefill_complete(event.request_id, event.block_id)
                     elif event.event_type.value == "decode_complete":
                         sim_stateful._handle_decode_complete(event.request_id)
+                    elif event.event_type.value == "transfer_complete":
+                        sim_stateful._handle_transfer_complete(event)
                     elif event.event_type.value == "heartbeat":
                         sim_stateful._send_heartbeats()
                         sim_stateful._schedule_heartbeat(

@@ -2,6 +2,9 @@
 
 ## What Makes This Interesting
 
+Modern distributed LLM clusters are built on stateless load balancers. Unless we add state and make the routers aware of consecuritve turns of the same conversation, the requests get scattered all over the pool of LLMs with low affinity and an expensive recomputation (prefill). 
+
+
 ### 1. Cache-Aware Load Balancing (Not Just Utilization)
 
 Most load balancers route on queue depth or HBM utilization. This router knows **what's cached** and trades off cache value against queue penalties via a continuous scoring function:

@@ -308,6 +308,10 @@ class EventDrivenSimulation:
                         )
                         self.failures_injected += 1
 
+                        # P2P Recovery: initiate transfers for blocks on failed GPU
+                        if self.enable_p2p_recovery:
+                            self._initiate_p2p_recovery(victim.instance_id)
+
         # Route the request
         decision = self.router.route(request)
         self.routing_decisions.append(decision)
@@ -549,6 +553,72 @@ class EventDrivenSimulation:
             )
             self.telemetry_broker.publish_telemetry(telemetry)
 
+    def _initiate_p2p_recovery(self, failed_instance_id: str) -> None:
+        """Initiate P2P transfers for blocks on failed GPU (Phase 3)."""
+        import random
+
+        # Find healthy instances to transfer to
+        healthy_instances = [
+            iid for iid, inst in self.instances.items()
+            if inst.health_status == "healthy" and iid != failed_instance_id
+        ]
+
+        if not healthy_instances:
+            return  # No healthy instances to transfer to
+
+        # Find all blocks on failed instance (both pinned and unpinned)
+        # All blocks should be preserved to avoid re-prefilling from scratch
+        blocks_to_transfer = [
+            block for block in self.state_machine.blocks.values()
+            if block.instance_id == failed_instance_id
+        ]
+
+        # DEBUG
+        # print(f"[DEBUG] Recovery: failed={failed_instance_id}, healthy={healthy_instances}, blocks_to_transfer={len(blocks_to_transfer)}")
+
+        # Initiate transfer for each block
+        for block in blocks_to_transfer:
+            # Choose a random healthy target instance
+            target_instance = random.choice(healthy_instances)
+
+            # Calculate transfer time based on network type
+            # RDMA: 100 Gbps, TCP: 10 Gbps
+            # KV cache size in bytes
+            kv_cache_bytes = block.kv_cache_bytes
+            if self.network_type == "rdma":
+                bandwidth_gbps = 100
+            else:  # tcp
+                bandwidth_gbps = 10
+
+            # Transfer time in ms: (bytes * 8 bits/byte) / (Gbps * 1e9 bits/sec) * 1000 ms/sec
+            transfer_time_ms = (kv_cache_bytes * 8) / (bandwidth_gbps * 1e9) * 1000
+            # Add small overhead
+            transfer_time_ms = max(transfer_time_ms + 1.0, 2.0)  # min 2ms
+
+            transfer_complete_time = self.current_time + transfer_time_ms
+
+            # Create transfer event
+            self.event_sequence += 1
+            transfer_event = Event(
+                time=transfer_complete_time,
+                event_type=EventType.TRANSFER_COMPLETE,
+                sequence=self.event_sequence,
+                instance_id=target_instance,
+                block_id=block.block_id,
+            )
+            heapq.heappush(self.event_queue, transfer_event)
+
+            # Track pending transfer
+            transfer_key = f"{target_instance}_{block.block_id}"
+            self.pending_transfers[transfer_key] = {
+                "block_id": block.block_id,
+                "source_instance": failed_instance_id,
+                "target_instance": target_instance,
+                "completion_time": transfer_complete_time,
+            }
+
+            self.transfers_initiated += 1
+
     def _check_recoveries(self) -> None:
         """Check if any failed instances should recover (Phase 3)."""
         for instance in self.instances.values():
@@ -558,12 +628,29 @@ class EventDrivenSimulation:
 
     def _handle_transfer_complete(self, event: Event) -> None:
         """Handle completion of a P2P KV block transfer (Phase 3)."""
-        # For now, transfers are simple: just mark as complete
-        # In a real system, this would validate the transfer and mark block as ready
         if event.instance_id and event.block_id:
             transfer_key = f"{event.instance_id}_{event.block_id}"
             if transfer_key in self.pending_transfers:
-                self.transfers_completed += 1
+                transfer_info = self.pending_transfers[transfer_key]
+                target_instance = event.instance_id
+                block_id = event.block_id
+
+                # Get the block and update its instance_id
+                block = self.state_machine.get_block(block_id)
+                if block:
+                    # Move block to target instance
+                    source_instance = block.instance_id
+                    block.instance_id = target_instance
+
+                    # Add to target instance's HBM
+                    target = self.instances[target_instance]
+                    target.add_block(block_id, block.kv_cache_bytes, self.current_time)
+
+                    # Remove from source instance's HBM (it's now failed/unrecoverable)
+                    # Note: source instance is unhealthy, so we just remove from tracking
+
+                    self.transfers_completed += 1
+
                 del self.pending_transfers[transfer_key]
 
     def get_metrics_summary(self) -> Dict:
