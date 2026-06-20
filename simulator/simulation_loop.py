@@ -587,10 +587,16 @@ class EventDrivenSimulation:
             if strategy:
                 strategy_counts[strategy.value] = strategy_counts.get(strategy.value, 0) + 1
 
+        # Calculate throughput: requests per second
+        completed_requests = len(latencies)
+        simulation_time_sec = 35.0  # Fixed simulation duration
+        throughput_rps = completed_requests / simulation_time_sec if simulation_time_sec > 0 else 0.0
+
         if not latencies:
             return {
                 "num_requests": len(self.request_metrics),
                 "completed_requests": 0,
+                "throughput_rps": 0.0,
                 "cache_hit_rate": 0.0,
                 "routing_strategies": strategy_counts,
             }
@@ -600,7 +606,8 @@ class EventDrivenSimulation:
 
         return {
             "num_requests": len(self.request_metrics),
-            "completed_requests": len(latencies),
+            "completed_requests": completed_requests,
+            "throughput_rps": throughput_rps,
             "cache_hit_rate": cache_hits / len(self.routing_decisions)
             if self.routing_decisions
             else 0.0,

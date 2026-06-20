@@ -14,9 +14,9 @@ export default function KeyMetrics({
   rightLabel = 'Right',
   comparisonMode = 'stateless_vs_stateful',
 }: KeyMetricsProps) {
-  const leftCompleted = metrics.left.completed_requests || 0;
-  const rightCompleted = metrics.right.completed_requests || 0;
-  const capacityImprovement = leftCompleted > 0 ? (rightCompleted / leftCompleted).toFixed(2) : '—';
+  const leftThroughput = metrics.left.throughput_rps || 0;
+  const rightThroughput = metrics.right.throughput_rps || 0;
+  const capacityImprovement = leftThroughput > 0 ? (rightThroughput / leftThroughput).toFixed(2) : '—';
 
   const leftCacheHit = metrics.left.cache_hit_rate || 0;
   const rightCacheHit = metrics.right.cache_hit_rate || 0;
@@ -40,7 +40,7 @@ export default function KeyMetrics({
             {capacityImprovement}x
           </p>
           <p className="text-xs text-slate-400 mt-2">
-            {isComparisonMode ? `${rightLabel} vs ${leftLabel}` : 'More customers on same hardware'}
+            {isComparisonMode ? `${rightThroughput.toFixed(1)} vs ${leftThroughput.toFixed(1)} req/sec` : 'More customers on same hardware'}
           </p>
         </div>
 
