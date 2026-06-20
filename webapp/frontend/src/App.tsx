@@ -5,7 +5,6 @@ import GPUCards from './components/GPUCards';
 import KeyMetrics from './components/KeyMetrics';
 import ExpertAccordion from './components/ExpertAccordion';
 import { useSimulation, type SimulationParams } from './hooks/useSimulation';
-import { downloadPDF } from './utils/pdfExport';
 
 export default function App() {
   const [params, setParams] = useState<SimulationParams>({
@@ -22,10 +21,6 @@ export default function App() {
   const handleRun = (newParams: SimulationParams) => {
     setParams(newParams);
     setShouldRun(true);
-  };
-
-  const handleExportPDF = async () => {
-    await downloadPDF(simState);
   };
 
   return (
@@ -81,24 +76,12 @@ export default function App() {
 
             {/* Expert Accordion */}
             {simState.final_metrics && (
-              <>
-                <ExpertAccordion
-                  metrics={simState.final_metrics}
-                  leftLabel={simState.left?.label}
-                  rightLabel={simState.right?.label}
-                  comparisonMode={simState.comparisonMode}
-                />
-
-                {/* PDF Export Button */}
-                <div className="flex justify-end pt-4">
-                  <button
-                    onClick={handleExportPDF}
-                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition"
-                  >
-                    📥 Download Results as PDF
-                  </button>
-                </div>
-              </>
+              <ExpertAccordion
+                metrics={simState.final_metrics}
+                leftLabel={simState.left?.label}
+                rightLabel={simState.right?.label}
+                comparisonMode={simState.comparisonMode}
+              />
             )}
 
             {/* Empty State */}

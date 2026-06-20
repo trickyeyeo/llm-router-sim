@@ -34,11 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files if dist directory exists
-dist_path = Path(__file__).parent / "dist"
-if dist_path.exists():
-    app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="static")
-
 
 def create_workload(num_sessions: int, turns_per_session: int, seed: int = 42):
     """Create multi-turn workload."""
@@ -259,6 +254,12 @@ async def simulate(
         yield f"data: {json.dumps(final_data)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# Mount static files AFTER API routes so /health and /simulate are accessible
+dist_path = Path(__file__).parent / "dist"
+if dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="static")
 
 
 if __name__ == "__main__":
