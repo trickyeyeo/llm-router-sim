@@ -45,6 +45,7 @@
    │Instance │        │ Instance     │       │ Instance     │
    └─────────┘        └──────────────┘       └──────────────┘
 
+```
 
 ## Routing Decision Flow (Scoring-Based)
 
@@ -95,10 +96,12 @@ Request Arrives
     │ Score (with tie-breaking)     │
     │ → RoutingDecision             │
     └───────────────────────────────┘
+```
 
 
 ## Scoring Components
 
+```
 ┌─────────────────────────────────────────────────────────────────┐
 │ CACHE VALUE CALCULATION                                         │
 │                                                                 │
@@ -136,6 +139,7 @@ Request Arrives
 │ Result: Requests distribute across GPUs when scores are close  │
 │ (preventing thundering herd) while preferring cache owners     │
 └─────────────────────────────────────────────────────────────────┘
+```
 
 
 ## Telemetry & Heartbeat Flow (NATS-like Pub/Sub)
@@ -188,6 +192,7 @@ Request Arrives
     │ Reconciliate│        │ Scoring      │   │ SSE Stream │
     │ Block state │        │ (next req)   │   │ (metrics)  │
     └──────────────┘        └──────────────┘   └────────────┘
+```
 
 
 ## Request Lifecycle in Simulation
