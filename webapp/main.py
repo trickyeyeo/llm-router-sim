@@ -68,13 +68,25 @@ def create_simulation(num_sessions: int, turns_per_session: int, stateful: bool)
 def extract_gpu_metrics(sim):
     """Extract current GPU metrics from simulation."""
     metrics = {}
+
+    # Calculate per-GPU cache hit rates from routing decisions
+    gpu_cache_hits = {}
+    gpu_total_requests = {}
+    for decision in sim.routing_decisions:
+        instance_id = decision.instance_id
+        gpu_total_requests[instance_id] = gpu_total_requests.get(instance_id, 0) + 1
+        if decision.cache_hit:
+            gpu_cache_hits[instance_id] = gpu_cache_hits.get(instance_id, 0) + 1
+
     for instance_id, instance in sim.instances.items():
         telemetry = instance.get_telemetry()
+        total = gpu_total_requests.get(instance_id, 1)
+        hits = gpu_cache_hits.get(instance_id, 0)
+        per_gpu_hit_rate = hits / total if total > 0 else 0.0
+
         metrics[instance_id] = {
             "hbm_utilization": telemetry["hbm_utilization"],
-            "cache_hit_rate": sim.state_machine.get_stats().get("cache_hit_rate", 0.0)
-            if sim.stateful
-            else 0.0,
+            "cache_hit_rate": per_gpu_hit_rate if sim.stateful else 0.0,
             "num_cached_blocks": telemetry["num_blocks"],
             "active_requests": len(instance.decode_requests),
         }
