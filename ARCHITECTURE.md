@@ -82,13 +82,18 @@ Request Arrives
         └───────┬───────┘
                 │
                 ▼
-    ┌───────────────────────────────┐
-    │ Score All Instances           │
-    │ For each GPU:                 │
-    │   score = cache_value         │
-    │         - load_penalty        │
-    │         + noise (tie-break)   │
-    └───────────────────────────────┘
+    ┌───────────────────────────────────────────┐
+    │ Score All Instances                       │
+    │ For each GPU:                             │
+    │   1. telemetry =                          │
+    │      telemetry_broker.get_instance_tel()  │
+    │   2. score = cache_value                  │
+    │            - load_penalty(telemetry)      │
+    │            + noise (tie-break)            │
+    │                                           │
+    │ (Telemetry broker provides real-time     │
+    │  queue depth & HBM for scoring)          │
+    └───────────────────────────────────────────┘
                 │
                 ▼
     ┌───────────────────────────────┐
@@ -115,6 +120,7 @@ Request Arrives
 
 ┌─────────────────────────────────────────────────────────────────┐
 │ LOAD PENALTY CALCULATION                                        │
+│ (Values from LoadAwareTelemetryBroker.get_instance_telemetry) │
 │                                                                 │
 │ load_penalty = (prefill_queue_depth × w_prefill)               │
 │              + (decode_queue_depth × w_decode)                 │
@@ -124,6 +130,9 @@ Request Arrives
 │   w_prefill = 0.5  (5x heavier than decode)                   │
 │   w_decode = 0.1                                               │
 │   w_hbm = 3.0      (soft scaling, not binary)                 │
+│                                                                 │
+│ Telemetry published every 100ms heartbeat; router uses latest  │
+│ values from broker for each routing decision                   │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
