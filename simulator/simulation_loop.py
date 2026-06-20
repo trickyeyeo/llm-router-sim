@@ -77,8 +77,41 @@ class RequestMetrics:
         return self.decode_complete_time - self.arrival_time
 
 
-# Router implementations moved to router/router.py
-# See LoadAwareRouter (with telemetry) and StatelessRouter (baseline)
+# Simple stateful router: cache-aware but no load telemetry
+class SimpleRouter:
+    """
+    Simple stateful router: sticky to cached instance, round-robin fallback.
+    (Uses cache affinity but ignores load telemetry)
+    """
+
+    def __init__(self, state_machine: PrefixStateMachine, instances: List[str]):
+        self.state_machine = state_machine
+        self.instances = instances
+        self.round_robin_index = 0
+
+    def route(self, request: Request) -> RoutingDecision:
+        """Route with cache affinity only."""
+        cached_block_id = self.state_machine.query_prefix_chain(request.prefix_hashes)
+        if cached_block_id:
+            block = self.state_machine.get_block(cached_block_id)
+            instance_id = block.instance_id
+            return RoutingDecision(
+                request_id=request.request_id,
+                instance_id=instance_id,
+                strategy=RoutingStrategy.CACHE_HIT,
+                cached_block_id=cached_block_id,
+                cache_hit=True,
+            )
+        else:
+            instance_id = self.instances[self.round_robin_index % len(self.instances)]
+            self.round_robin_index += 1
+            return RoutingDecision(
+                request_id=request.request_id,
+                instance_id=instance_id,
+                strategy=RoutingStrategy.LOAD_BALANCED,
+                cached_block_id=None,
+                cache_hit=False,
+            )
 
 
 class StatelessRouter:
@@ -134,12 +167,11 @@ class EventDrivenSimulation:
         # Telemetry broker for NATS-style updates
         self.telemetry_broker = LoadAwareTelemetryBroker(overload_threshold=0.8)
 
-        # Router: load-aware (prefix-aware + telemetry) or stateless (round-robin only)
+        # Router: stateful (cache-aware) or stateless (round-robin only)
         if stateful:
-            self.router = LoadAwareRouter(
+            self.router = SimpleRouter(
                 self.state_machine,
                 list(self.instances.keys()),
-                self.telemetry_broker,
             )
         else:
             self.router = StatelessRouter(list(self.instances.keys()))
