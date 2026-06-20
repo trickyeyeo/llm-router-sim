@@ -48,7 +48,13 @@ def create_workload(num_sessions: int, turns_per_session: int, seed: int = 42):
     )
 
 
-def create_simulation(num_sessions: int, turns_per_session: int, stateful: bool):
+def create_simulation(
+    num_sessions: int,
+    turns_per_session: int,
+    stateful: bool,
+    failure_rate: float = 0.0,
+    network_type: str = "rdma",
+):
     """Create simulation instance."""
     instances_config = [
         create_gpu_instance_config("gpu0", H100_80GB, LLAMA_70B),
@@ -62,6 +68,9 @@ def create_simulation(num_sessions: int, turns_per_session: int, stateful: bool)
         instances_config=instances_config,
         heartbeat_interval_ms=100.0,
         stateful=stateful,
+        failure_rate=failure_rate,
+        failure_recovery_time_ms=5000.0,
+        network_type=network_type,
     )
 
 
@@ -103,6 +112,8 @@ async def health():
 async def simulate(
     num_sessions: int = Query(5, ge=1, le=20),
     turns_per_session: int = Query(5, ge=1, le=10),
+    failure_rate: float = Query(0.0, ge=0.0, le=1.0),
+    network_type: str = Query("rdma", regex="^(rdma|tcp)$"),
 ):
     """
     Run simulations (stateless and stateful) and stream results.
@@ -110,14 +121,22 @@ async def simulate(
     Query params:
     - num_sessions: number of concurrent conversation sessions (1-20)
     - turns_per_session: number of turns per session (1-10)
+    - failure_rate: probability of GPU failure per request (0.0-1.0, Phase 3)
+    - network_type: network technology for P2P transfers ("rdma" or "tcp", Phase 3)
 
     Streams SSE events with real-time metrics.
     """
 
     async def event_generator():
-        # Create both simulations
-        sim_stateless = create_simulation(num_sessions, turns_per_session, stateful=False)
-        sim_stateful = create_simulation(num_sessions, turns_per_session, stateful=True)
+        # Create both simulations (Phase 3: pass failure_rate and network_type)
+        sim_stateless = create_simulation(
+            num_sessions, turns_per_session, stateful=False,
+            failure_rate=failure_rate, network_type=network_type
+        )
+        sim_stateful = create_simulation(
+            num_sessions, turns_per_session, stateful=True,
+            failure_rate=failure_rate, network_type=network_type
+        )
 
         # Simulation parameters
         sim_time = 35_000.0  # 35 seconds

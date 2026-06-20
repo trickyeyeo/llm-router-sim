@@ -28,6 +28,9 @@ class EventType(Enum):
     PREFILL_COMPLETE = "prefill_complete"
     DECODE_COMPLETE = "decode_complete"
     HEARTBEAT = "heartbeat"
+    TRANSFER_COMPLETE = "transfer_complete"
+    FAILURE = "failure"
+    RECOVERY = "recovery"
 
 
 @dataclass
@@ -150,11 +153,19 @@ class EventDrivenSimulation:
         instances_config: List[GPUInstanceConfig],
         heartbeat_interval_ms: float = 100.0,
         stateful: bool = True,
+        failure_rate: float = 0.0,
+        failure_recovery_time_ms: float = 5000.0,
+        network_type: str = "rdma",
     ):
         self.workload_gen = workload_gen
         self.heartbeat_interval_ms = heartbeat_interval_ms
         self.current_time = 0.0
         self.stateful = stateful
+
+        # Failure injection (Phase 3)
+        self.failure_rate = failure_rate
+        self.failure_recovery_time_ms = failure_recovery_time_ms
+        self.network_type = network_type
 
         # State machine
         self.state_machine = PrefixStateMachine()
@@ -163,6 +174,10 @@ class EventDrivenSimulation:
         self.instances: Dict[str, GPUInstance] = {
             cfg.instance_id: GPUInstance(cfg) for cfg in instances_config
         }
+
+        # Set network type for all instances
+        for instance in self.instances.values():
+            instance.network_type = network_type
 
         # Telemetry broker for NATS-style updates
         self.telemetry_broker = LoadAwareTelemetryBroker(overload_threshold=0.8)
@@ -176,13 +191,18 @@ class EventDrivenSimulation:
         else:
             self.router = StatelessRouter(list(self.instances.keys()))
 
-        # Metrics
+        # Metrics (Phase 3)
         self.request_metrics: Dict[str, RequestMetrics] = {}
         self.routing_decisions: List[RoutingDecision] = []
+        self.transfers_initiated = 0
+        self.transfers_completed = 0
+        self.transfers_failed = 0
+        self.failures_injected = 0
 
         # Pending operations
         self.pending_prefills: Dict[str, Dict] = {}  # op_id → metadata
         self.active_requests: Dict[str, Tuple[Request, RoutingDecision]] = {}  # request_id → (request, decision)
+        self.pending_transfers: Dict[str, Dict] = {}  # transfer_id → {block_id, target_instance, completion_time}
 
         # Operation counters
         self.operation_counter = 0
@@ -220,8 +240,11 @@ class EventDrivenSimulation:
                 self._handle_prefill_complete(event.request_id, event.block_id)
             elif event.event_type == EventType.DECODE_COMPLETE:
                 self._handle_decode_complete(event.request_id)
+            elif event.event_type == EventType.TRANSFER_COMPLETE:
+                self._handle_transfer_complete(event)
             elif event.event_type == EventType.HEARTBEAT:
                 self._send_heartbeats()
+                self._check_recoveries()
                 # Schedule next heartbeat
                 self._schedule_heartbeat(self.current_time + self.heartbeat_interval_ms)
 
@@ -267,6 +290,22 @@ class EventDrivenSimulation:
 
     def _handle_request_arrival(self, request: Request) -> None:
         """Handle a request that has arrived."""
+        # Probabilistic failure injection (Phase 3)
+        if self.failure_rate > 0.0:
+            import random
+            if random.random() < self.failure_rate:
+                # Inject failure on a random instance
+                instance_list = list(self.instances.values())
+                if instance_list:
+                    victim = random.choice(instance_list)
+                    if victim.health_status == "healthy":
+                        victim.inject_failure(
+                            self.current_time,
+                            self.failure_recovery_time_ms,
+                            reason="request_triggered",
+                        )
+                        self.failures_injected += 1
+
         # Route the request
         decision = self.router.route(request)
         self.routing_decisions.append(decision)
@@ -479,6 +518,11 @@ class EventDrivenSimulation:
         for instance in self.instances.values():
             telemetry_dict = instance.get_telemetry()
 
+            # Detect reboot (epoch change) and clear blocks
+            old_epoch = self.state_machine.instance_epochs.get(instance.instance_id, telemetry_dict["epoch"])
+            if telemetry_dict["epoch"] > old_epoch:
+                self.state_machine.clear_instance_blocks(instance.instance_id)
+
             # Update state machine for reconciliation
             self.state_machine.update_instance_state(
                 instance.instance_id,
@@ -486,7 +530,7 @@ class EventDrivenSimulation:
                 telemetry_dict["state_hash"],
             )
 
-            # Publish to telemetry broker for routing decisions
+            # Publish to telemetry broker for routing decisions (Phase 3: include health)
             telemetry = InstanceTelemetry(
                 instance_id=instance.instance_id,
                 epoch=telemetry_dict["epoch"],
@@ -495,8 +539,30 @@ class EventDrivenSimulation:
                 num_cached_blocks=telemetry_dict["num_blocks"],
                 state_hash=telemetry_dict["state_hash"],
                 timestamp=self.current_time,
+                health_status=telemetry_dict["health_status"],
+                failure_reason=telemetry_dict["failure_reason"],
+                network_type=telemetry_dict["network_type"],
+                prefill_queue_depth=telemetry_dict["num_prefill_queue"],
+                decode_queue_depth=telemetry_dict["num_decode_requests"],
             )
             self.telemetry_broker.publish_telemetry(telemetry)
+
+    def _check_recoveries(self) -> None:
+        """Check if any failed instances should recover (Phase 3)."""
+        for instance in self.instances.values():
+            if instance.check_recovery(self.current_time):
+                # Instance recovered, clear its blocks from state machine
+                self.state_machine.clear_instance_blocks(instance.instance_id)
+
+    def _handle_transfer_complete(self, event: Event) -> None:
+        """Handle completion of a P2P KV block transfer (Phase 3)."""
+        # For now, transfers are simple: just mark as complete
+        # In a real system, this would validate the transfer and mark block as ready
+        if event.instance_id and event.block_id:
+            transfer_key = f"{event.instance_id}_{event.block_id}"
+            if transfer_key in self.pending_transfers:
+                self.transfers_completed += 1
+                del self.pending_transfers[transfer_key]
 
     def get_metrics_summary(self) -> Dict:
         """Get aggregate metrics from simulation."""
@@ -537,6 +603,12 @@ class EventDrivenSimulation:
             if self.routing_decisions
             else 0.0,
             "routing_strategies": strategy_counts,
+            # Phase 3: Failure and transfer metrics
+            "failures_injected": self.failures_injected,
+            "transfers_initiated": self.transfers_initiated,
+            "transfers_completed": self.transfers_completed,
+            "transfers_failed": self.transfers_failed,
+            "network_type": self.network_type,
             "e2e_latency_ms": {
                 "min": min(latencies),
                 "max": max(latencies),

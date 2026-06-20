@@ -74,6 +74,13 @@ class GPUInstance:
         self.operations_completed = 0
         self.operation_sequence = 0  # For unique heap ordering
 
+        # Health tracking (Phase 3)
+        self.health_status = "healthy"  # "healthy" | "degraded" | "failed"
+        self.failure_reason: Optional[str] = None
+        self.failure_time: Optional[float] = None  # When failure occurred
+        self.recovery_deadline: Optional[float] = None  # When instance will recover
+        self.network_type = "rdma"  # Network capability for P2P transfers
+
     @dataclass
     class BlockState:
         """State of a cached KV block on this instance."""
@@ -269,6 +276,38 @@ class GPUInstance:
             target_tokens=target_tokens,
         )
 
+    def inject_failure(self, current_time: float, recovery_time_ms: float, reason: str = "random") -> None:
+        """Mark instance as failed and schedule recovery."""
+        self.health_status = "failed"
+        self.failure_reason = reason
+        self.failure_time = current_time
+        self.recovery_deadline = current_time + recovery_time_ms
+
+    def recover(self, current_time: float) -> None:
+        """Recover instance from failure (simulates reboot)."""
+        self.health_status = "healthy"
+        self.failure_reason = None
+        self.failure_time = None
+        self.recovery_deadline = None
+        # Increment epoch to signal state machine of reboot
+        self.epoch += 1
+        # Clear all blocks (HBM loss on reboot)
+        self.blocks.clear()
+        self.hbm_used_bytes = 0
+        self.prefill_queue.clear()
+        self.decode_requests.clear()
+
+    def check_recovery(self, current_time: float) -> bool:
+        """Check if instance should recover. Returns True if recovered."""
+        if (
+            self.health_status == "failed"
+            and self.recovery_deadline is not None
+            and current_time >= self.recovery_deadline
+        ):
+            self.recover(current_time)
+            return True
+        return False
+
     def get_state_hash(self) -> str:
         """
         Compute state hash for reconciliation.
@@ -293,6 +332,10 @@ class GPUInstance:
                 1 for b in self.blocks.values() if b.pin_count > 0
             ),
             "num_decode_requests": len(self.decode_requests),
+            "num_prefill_queue": len(self.prefill_queue),
             "operations_completed": self.operations_completed,
             "state_hash": self.get_state_hash(),
+            "health_status": self.health_status,
+            "failure_reason": self.failure_reason,
+            "network_type": self.network_type,
         }
