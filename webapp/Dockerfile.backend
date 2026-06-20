@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy parent simulation code
+COPY simulator /app/simulator
+COPY router /app/router
+COPY webapp/backend_requirements.txt /app/requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy backend
+COPY webapp/main.py /app/main.py
+
+EXPOSE 8000
+
+CMD ["python", "main.py"]
