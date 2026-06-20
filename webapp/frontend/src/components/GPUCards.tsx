@@ -24,6 +24,18 @@ function getUtilizationColor(util: number): string {
   return 'red';
 }
 
+function getCacheHitColor(rate: number): string {
+  if (rate < 0.3) return 'red';
+  if (rate < 0.7) return 'yellow';
+  return 'green';
+}
+
+function getCacheHitBgColor(rate: number): string {
+  if (rate < 0.3) return 'bg-red-500';
+  if (rate < 0.7) return 'bg-yellow-500';
+  return 'bg-green-500';
+}
+
 function GPUCard({
   gpuId,
   hbmUtil,
@@ -59,9 +71,19 @@ function GPUCard({
           ></div>
         </div>
 
-        <div className="flex justify-between mt-3">
-          <span className="text-slate-400">Cache Hit:</span>
-          <span className="text-blue-400">{(cacheHitRate * 100).toFixed(1)}%</span>
+        <div className="mt-3">
+          <div className="flex justify-between mb-1">
+            <span className="text-slate-400">Cache Hit:</span>
+            <span className={getCacheHitColor(cacheHitRate) === 'green' ? 'text-green-400' : getCacheHitColor(cacheHitRate) === 'yellow' ? 'text-yellow-400' : 'text-red-400'}>
+              {(cacheHitRate * 100).toFixed(1)}%
+            </span>
+          </div>
+          <div className="w-full h-1 bg-slate-700 rounded overflow-hidden">
+            <div
+              className={`h-full transition-all duration-300 ${getCacheHitBgColor(cacheHitRate)}`}
+              style={{ width: `${cacheHitRate * 100}%` }}
+            ></div>
+          </div>
         </div>
 
         <div className="flex justify-between">

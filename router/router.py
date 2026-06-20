@@ -372,46 +372,44 @@ class LoadAwareRouter:
         # Query prefix cache for match
         cached_block_id = self.state_machine.query_prefix_chain(request.prefix_hashes)
 
-        # Extract request parameters for scoring
-        total_tokens = sum(pb.num_tokens for pb in request.prefix_blocks) + request.target_output_tokens
+        # Find which instance has the cached block (if any)
+        cache_owner_instance = None
         matched_tokens = 0
         if cached_block_id:
             block = self.state_machine.get_block(cached_block_id)
+            cache_owner_instance = block.instance_id
             matched_tokens = block.prefix_tokens
 
-        # Score all healthy instances
+        # Extract request parameters for scoring
+        total_tokens = sum(pb.num_tokens for pb in request.prefix_blocks) + request.target_output_tokens
+
+        # Score all instances, prioritizing healthy ones
         scores = []
+        scores_degraded = []
+        prefill_throughput = 1000.0  # Tokens/sec (will be refined per-model)
+
         for instance_id in self.instances:
             telemetry = self.telemetry_broker.get_instance_telemetry(instance_id)
 
-            # Only score healthy instances
-            if telemetry and telemetry.health_status != "healthy":
-                continue
-
-            # Use a baseline prefill throughput (tok/sec) for scoring
-            # In production, this would come from the request's model_id
-            prefill_throughput = 1000.0  # Tokens/sec (will be refined per-model)
+            # Only give cache value to the instance that actually has the block
+            instance_matched_tokens = matched_tokens if instance_id == cache_owner_instance else 0
 
             score = self.score_instance_for_routing(
                 instance_id,
-                matched_tokens,
+                instance_matched_tokens,
                 total_tokens,
                 prefill_throughput,
             )
-            scores.append(score)
 
-        # If no healthy instances found, include degraded/failed as last resort
-        if not scores:
-            for instance_id in self.instances:
-                telemetry = self.telemetry_broker.get_instance_telemetry(instance_id)
-                prefill_throughput = 1000.0
-                score = self.score_instance_for_routing(
-                    instance_id,
-                    matched_tokens,
-                    total_tokens,
-                    prefill_throughput,
-                )
+            # Separate healthy from degraded/failed (but always score cache owner for transfer decisions)
+            if telemetry and telemetry.health_status != "healthy":
+                scores_degraded.append(score)
+            else:
                 scores.append(score)
+
+        # Use degraded instances only if no healthy instances available
+        if not scores and scores_degraded:
+            scores = scores_degraded
 
         # Select best instance with tie-breaking noise
         best_score = self.select_instance_with_tie_breaking(scores)

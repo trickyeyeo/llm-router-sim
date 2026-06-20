@@ -1,8 +1,10 @@
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-interface ComparisonChartsProps {}
+interface ComparisonChartsProps {
+  metrics: any;
+}
 
-export default function ComparisonCharts({}: ComparisonChartsProps) {
+export default function ComparisonCharts({ metrics: _metrics }: ComparisonChartsProps) {
   // Prepare data for charts - use placeholder data for now
   const chartData = [
     { turn: 1, stateless: 683, stateful: 683 },

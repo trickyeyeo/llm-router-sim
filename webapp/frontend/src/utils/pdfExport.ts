@@ -33,12 +33,12 @@ export async function downloadPDF(simState: any) {
 
   // Header
   pdf.setFontSize(24);
-  pdf.setFont(undefined, 'bold');
+  pdf.setFont('helvetica', 'bold');
   pdf.text('LLM Router Demo Results', 20, yPosition);
   yPosition += 15;
 
   pdf.setFontSize(10);
-  pdf.setFont(undefined, 'normal');
+  pdf.setFont('helvetica', 'normal');
   pdf.text(`Generated: ${new Date().toLocaleString()}`, 20, yPosition);
   yPosition += 10;
 
@@ -99,13 +99,13 @@ export async function downloadPDF(simState: any) {
   const colWidth = (pageWidth - 40) / 3;
 
   // Header row
-  pdf.setFont(undefined, 'bold');
+  pdf.setFont('helvetica', 'bold');
   metrics[0].forEach((cell, i) => {
     pdf.text(cell, 20 + i * colWidth, tableY);
   });
 
   tableY += 7;
-  pdf.setFont(undefined, 'normal');
+  pdf.setFont('helvetica', 'normal');
 
   // Data rows
   for (let i = 1; i < metrics.length; i++) {
