@@ -43,10 +43,10 @@ class GPUInstanceConfig:
     """Configuration for a GPU instance."""
 
     instance_id: str
-    model_id: str  # 'H100-405B', 'L4-8B'
-    hbm_capacity_bytes: int  # Total HBM (80GB for H100, 24GB for L4)
-    prefill_throughput_tokens_per_ms: float  # Tokens prefilled per ms
-    decode_latency_per_token_ms: float  # Latency per token during decode
+    model_id: str  # 'Llama-405B', 'Llama-8B', etc.
+    hbm_capacity_bytes: int  # Total HBM bytes
+    prefill_throughput_tokens_per_sec: float  # Tokens prefilled per second (entire batch)
+    decode_latency_per_token_ms: float  # Latency per token during decode (single token generation)
     max_batch_size: int = 256  # Max requests in decode batch
 
 
@@ -202,10 +202,12 @@ class GPUInstance:
             block_id: Block to create/cache
             num_tokens: Number of tokens in prefix
             kv_cache_bytes: Size of output KV cache
-            current_time: Current simulation time
+            current_time: Current simulation time (ms)
         """
         # Estimate prefill time (memory-bound: throughput limited)
-        prefill_time_ms = num_tokens / self.config.prefill_throughput_tokens_per_ms
+        # Convert tokens/sec to tokens/ms, then compute time
+        prefill_throughput_tokens_per_ms = self.config.prefill_throughput_tokens_per_sec / 1000.0
+        prefill_time_ms = num_tokens / prefill_throughput_tokens_per_ms
         complete_time = current_time + prefill_time_ms
 
         op = PrefillOperation(

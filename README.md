@@ -185,25 +185,49 @@ stats = sm.get_stats()
 
 ---
 
+## Realistic Constants
+
+All simulation parameters are grounded in real hardware and model characteristics:
+
+**GPU Hardware:**
+- H100 80GB: 80GB HBM, ~1500 tokens/sec prefill (memory-bound), ~1ms per decode token
+- L4 24GB: 24GB HBM, ~800 tokens/sec prefill, ~2ms per decode token
+
+**Model KV Cache:**
+- Llama 405B: ~1.5MB per token (after compression, on H100)
+- Llama 70B: ~512KB per token (on H100)
+- Llama 8B: ~256KB per token (on L4)
+- Llama 1B: ~64KB per token (on L4)
+
+These constants are defined in `simulator/constants.py` and used throughout the simulator.
+
+## Simulation Architecture
+
+**Layers:**
+1. **Prefix State Machine** (`router/prefix_state_machine.py`) — tracks KV cache state
+2. **GPU Backend** (`simulator/gpu_backend.py`) — simulates prefill/decode/HBM/LRU
+3. **Workload Generator** (`simulator/workload.py`) — creates realistic request patterns (RAG, few-shot, etc.)
+4. **Simulation Loop** (`simulator/simulation_loop.py`) — coordinates everything, collects metrics
+5. **Router** (`simulator/simulation_loop.py::SimpleRouter`) — makes routing decisions (sticky to cache, round-robin fallback)
+
 ## Next Steps
 
-1. **Simulation Loop Architecture** (`simulator/simulation_loop.py`)
-   - Time-stepped executor: request arrival → routing → prefill → decode → completion
-   - GPU backend model with realistic timings
-   - NATS-style telemetry mock
+1. **Optimize Simulation Performance** 
+   - Current bottleneck: time-stepped loop with fine-grained events
+   - Could batch events, use event queues, or reduce time-step granularity
 
-2. **CUJ Scenarios** (`simulator/cuj_scenarios.py`)
-   - RAG pipelines with retrieval overlap
-   - Few-shot inference with shared examples
-   - Multi-turn conversations
-   - Mixed LLM/SLM workloads
+2. **Expand Router Policies** (`router/router.py`)
+   - Load-aware routing (integrate NATS-style telemetry)
+   - Affinity with fallback (prefer cache hit, but load-shed if instance full)
+   - Predictive routing (anticipate next prefix based on patterns)
 
-3. **Router Routing Logic** (`router/router.py`)
-   - Initial policy: sticky to cached instance, fallback to round-robin
-   - Evolve with NATS telemetry: affinity + load shedding
+3. **Advanced CUJ Scenarios** (`simulator/cuj_scenarios.py`)
+   - Multi-turn conversations with user session tracking
+   - RAG with dynamic retrieval result cardinality
+   - Few-shot batching with stragglers
+   - Mixed LLM/SLM routing decisions
 
-4. **Metrics & Analysis** (`experiments/cuj_analysis.py`)
-   - Measure latency (TTFT, e2e p50/p99)
-   - Track cache hit rates
-   - Plot throughput vs. cache locality
-   - Compare stateless vs. prefix-aware routing
+4. **Comparative Analysis** (`experiments/`)
+   - Stateless vs. prefix-aware routing (throughput, latency, cache hit rate)
+   - Impact of retrieval overlap, batch size, output length
+   - Cost-benefit of cross-instance KV migration

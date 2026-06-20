@@ -129,6 +129,7 @@ class RAGWorkload(WorkloadGenerator):
         user_query_tokens: int = 128,
         retrieval_reuse_probability: float = 0.4,
         output_tokens_mean: int = 256,
+        kv_cache_bytes_per_token: int = 256000,  # ~256KB per token (reasonable default)
         seed: int = 42,
     ):
         super().__init__(seed)
@@ -141,8 +142,8 @@ class RAGWorkload(WorkloadGenerator):
         self.request_counter = 0
         self.last_arrival_time = -1e9  # Start far in the past
 
-        # KV cache size heuristic: ~256 bytes per token (depends on model)
-        self.kv_bytes_per_token = 256
+        # KV cache size: can be customized per model
+        self.kv_bytes_per_token = kv_cache_bytes_per_token
 
         # Retrieval contexts pool (to model reuse)
         self.retrieval_contexts = {}

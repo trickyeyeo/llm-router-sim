@@ -1,27 +1,27 @@
 """
 Quick test: small simulation to verify core logic works.
+Uses realistic constants for H100 + Llama-70B.
 """
 
 from simulator.simulation_loop import SimulationLoop
 from simulator.workload import RAGWorkload
-from simulator.gpu_backend import GPUInstanceConfig
+from simulator.constants import (
+    create_gpu_instance_config,
+    H100_80GB,
+    LLAMA_70B,
+)
 
 
 def run_quick_test():
     """Run quick test with small workload."""
 
-    # Single GPU instance for simplicity
+    # Single H100 with Llama-70B (more realistic than placeholder values)
     instances_config = [
-        GPUInstanceConfig(
-            instance_id="gpu0",
-            model_id="H100-405B",
-            hbm_capacity_bytes=80 * 1024 * 1024 * 1024,  # 80 GB
-            prefill_throughput_tokens_per_ms=500.0,
-            decode_latency_per_token_ms=1.0,
-        ),
+        create_gpu_instance_config("gpu0", H100_80GB, LLAMA_70B),
     ]
 
     # Small workload: 10 req/sec, 40% retrieval overlap
+    # KV cache size from Llama-70B: ~512KB per token
     workload = RAGWorkload(
         arrival_rate_requests_per_sec=10.0,  # 10 requests/sec (small)
         system_prompt_tokens=512,
@@ -29,6 +29,7 @@ def run_quick_test():
         user_query_tokens=128,
         retrieval_reuse_probability=0.4,
         output_tokens_mean=256,
+        kv_cache_bytes_per_token=LLAMA_70B.kv_cache_bytes_per_token,
         seed=42,
     )
 
