@@ -3,7 +3,7 @@ Quick test: small simulation to verify core logic works.
 Uses realistic constants for H100 + Llama-70B.
 """
 
-from simulator.simulation_loop import SimulationLoop
+from simulator.simulation_loop import EventDrivenSimulation
 from simulator.workload import RAGWorkload
 from simulator.constants import (
     create_gpu_instance_config,
@@ -33,19 +33,18 @@ def run_quick_test():
         seed=42,
     )
 
-    # Small simulation: 1 second
-    sim = SimulationLoop(
+    # Event-driven simulation: much faster than time-stepped
+    sim = EventDrivenSimulation(
         workload_gen=workload,
         instances_config=instances_config,
         heartbeat_interval_ms=100.0,
-        time_step_ms=10.0,  # 10ms steps (larger) for speed
     )
 
-    print("Running quick test for 1 second (simulated time)...")
+    print("Running quick test for 10 seconds (simulated time)...")
     import time
     start = time.time()
 
-    sim.run(simulation_time_ms=1000.0)
+    sim.run(simulation_time_ms=10000.0)
 
     elapsed = time.time() - start
     print(f"Simulation completed in {elapsed:.2f} seconds wall time")

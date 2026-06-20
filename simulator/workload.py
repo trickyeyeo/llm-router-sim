@@ -79,7 +79,8 @@ class PoissonWorkload(WorkloadGenerator):
         self.output_tokens_factory = output_tokens_factory
         self.model_factory = model_factory
         self.request_counter = 0
-        self.last_arrival_time = -1e9  # Start far in the past to allow first arrivals
+        # Generate first inter-arrival to bootstrap (simulates requests arriving before time 0)
+        self.last_arrival_time = -random.expovariate(arrival_rate_requests_per_sec / 1000.0)
 
     def generate_arrivals(self, current_time: float) -> List[Request]:
         """Generate Poisson-distributed arrivals."""
@@ -140,7 +141,8 @@ class RAGWorkload(WorkloadGenerator):
         self.retrieval_reuse_probability = retrieval_reuse_probability
         self.output_tokens_mean = output_tokens_mean
         self.request_counter = 0
-        self.last_arrival_time = -1e9  # Start far in the past
+        # Generate first inter-arrival to bootstrap
+        self.last_arrival_time = -random.expovariate(arrival_rate_requests_per_sec / 1000.0)
 
         # KV cache size: can be customized per model
         self.kv_bytes_per_token = kv_cache_bytes_per_token
@@ -248,7 +250,8 @@ class FewShotWorkload(WorkloadGenerator):
         self.output_tokens_mean = output_tokens_mean
         self.batch_size = batch_size
         self.request_counter = 0
-        self.last_arrival_time = -1e9  # Start far in the past
+        # Generate first inter-arrival to bootstrap
+        self.last_arrival_time = -random.expovariate(arrival_rate_requests_per_sec / 1000.0)
         self.batch_counter = 0
 
         self.kv_bytes_per_token = 256

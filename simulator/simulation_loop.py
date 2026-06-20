@@ -1,23 +1,43 @@
 """
-Simulation loop: coordinates router, GPU instances, and state machine.
+Event-driven simulation loop: coordinates router, GPU instances, and state machine.
 
-Time-stepped execution:
-1. Generate request arrivals
-2. Route requests (query state machine, make routing decision)
-3. Step GPU instances (execute prefill, decode, eviction)
-4. Update state machine with results
-5. Collect metrics
-6. Advance time
+Instead of time-stepping uniformly, jumps to next event time.
+This is orders of magnitude faster for sparse event rates.
 """
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
-from collections import defaultdict
-import time as wall_time
+from enum import Enum
+import heapq
 
 from router.prefix_state_machine import PrefixStateMachine, Block
 from simulator.gpu_backend import GPUInstance, GPUInstanceConfig
 from simulator.workload import Request, WorkloadGenerator
+
+
+class EventType(Enum):
+    """Types of events in the simulation."""
+    ARRIVAL = "arrival"
+    PREFILL_COMPLETE = "prefill_complete"
+    DECODE_COMPLETE = "decode_complete"
+    HEARTBEAT = "heartbeat"
+
+
+@dataclass
+class Event:
+    """An event in the simulation."""
+    time: float
+    event_type: EventType
+    sequence: int  # For stable ordering when times are equal
+    request_id: Optional[str] = None
+    instance_id: Optional[str] = None
+    block_id: Optional[str] = None
+
+    def __lt__(self, other):
+        """For heap ordering."""
+        if self.time != other.time:
+            return self.time < other.time
+        return self.sequence < other.sequence
 
 
 @dataclass
@@ -99,9 +119,11 @@ class SimpleRouter:
             )
 
 
-class SimulationLoop:
+class EventDrivenSimulation:
     """
-    Main simulation loop coordinator.
+    Event-driven simulation loop: jump to next event time instead of stepping uniformly.
+
+    Much faster than time-stepped simulation for realistic request rates.
     """
 
     def __init__(
@@ -109,10 +131,8 @@ class SimulationLoop:
         workload_gen: WorkloadGenerator,
         instances_config: List[GPUInstanceConfig],
         heartbeat_interval_ms: float = 100.0,
-        time_step_ms: float = 1.0,
     ):
         self.workload_gen = workload_gen
-        self.time_step_ms = time_step_ms
         self.heartbeat_interval_ms = heartbeat_interval_ms
         self.current_time = 0.0
 
@@ -131,43 +151,93 @@ class SimulationLoop:
         self.request_metrics: Dict[str, RequestMetrics] = {}
         self.routing_decisions: List[RoutingDecision] = []
 
-        # Pending operations (tracking prefills and decodes)
+        # Pending operations
         self.pending_prefills: Dict[str, Dict] = {}  # op_id → metadata
         self.active_requests: Dict[str, Tuple[Request, RoutingDecision]] = {}  # request_id → (request, decision)
 
         # Operation counters
         self.operation_counter = 0
+        self.event_sequence = 0
+
+        # Event queue
+        self.event_queue: List[Event] = []
         self.next_heartbeat_time = heartbeat_interval_ms
+        self._pending_arrivals: Dict[str, Request] = {}  # Pregenerated requests for bootstrap
 
     def run(self, simulation_time_ms: float) -> None:
         """Run simulation until simulation_time_ms."""
         end_time = simulation_time_ms
 
-        while self.current_time < end_time:
-            # 1. Generate arrivals
-            arrivals = self.workload_gen.generate_arrivals(self.current_time)
-            for request in arrivals:
-                self._handle_arrival(request)
+        # Bootstrap: generate initial arrivals
+        self._bootstrap_arrivals(end_time)
 
-            # 2. Step each GPU instance
-            for instance in self.instances.values():
-                events = instance.step(self.current_time)
-                for event_type, request_id, block_id in events:
-                    if event_type == "prefill_complete":
-                        self._handle_prefill_complete(request_id, block_id)
-                    elif event_type == "decode_complete":
-                        self._handle_decode_complete(request_id)
+        # Schedule first heartbeat
+        self._schedule_heartbeat(self.next_heartbeat_time)
 
-            # 3. Periodic heartbeats
-            if self.current_time >= self.next_heartbeat_time:
+        while self.event_queue and self.current_time < end_time:
+            # Pop next event
+            event = heapq.heappop(self.event_queue)
+
+            # Jump to event time
+            self.current_time = event.time
+
+            if self.current_time > end_time:
+                break
+
+            # Handle event
+            if event.event_type == EventType.ARRIVAL:
+                self._handle_arrival_event(event)
+            elif event.event_type == EventType.PREFILL_COMPLETE:
+                self._handle_prefill_complete(event.request_id, event.block_id)
+            elif event.event_type == EventType.DECODE_COMPLETE:
+                self._handle_decode_complete(event.request_id)
+            elif event.event_type == EventType.HEARTBEAT:
                 self._send_heartbeats()
-                self.next_heartbeat_time += self.heartbeat_interval_ms
+                # Schedule next heartbeat
+                self._schedule_heartbeat(self.current_time + self.heartbeat_interval_ms)
 
-            # Advance time
-            self.current_time += self.time_step_ms
+    def _bootstrap_arrivals(self, end_time: float) -> None:
+        """Bootstrap: generate all arrivals upfront."""
+        # Query workload generator for all arrivals up to end_time
+        arrivals = self.workload_gen.generate_arrivals(end_time)
 
-    def _handle_arrival(self, request: Request) -> None:
-        """Handle a new request arrival."""
+        # Schedule arrival events for each request
+        for request in arrivals:
+            if request.arrival_time <= end_time:
+                self.event_sequence += 1
+                event = Event(
+                    time=request.arrival_time,
+                    event_type=EventType.ARRIVAL,
+                    sequence=self.event_sequence,
+                    request_id=request.request_id,
+                )
+                heapq.heappush(self.event_queue, event)
+                # Store request for later retrieval
+                self._pending_arrivals = getattr(self, '_pending_arrivals', {})
+                self._pending_arrivals[request.request_id] = request
+
+    def _schedule_heartbeat(self, time: float) -> None:
+        """Schedule a heartbeat event."""
+        self.event_sequence += 1
+        event = Event(
+            time=time,
+            event_type=EventType.HEARTBEAT,
+            sequence=self.event_sequence,
+        )
+        heapq.heappush(self.event_queue, event)
+
+    def _handle_arrival_event(self, event: Event) -> None:
+        """Process arrival event by looking up the pregenerated request."""
+        # Get the request that was pregenerated in bootstrap
+        request_id = event.request_id
+        pending_arrivals = getattr(self, '_pending_arrivals', {})
+
+        if request_id in pending_arrivals:
+            request = pending_arrivals[request_id]
+            self._handle_request_arrival(request)
+
+    def _handle_request_arrival(self, request: Request) -> None:
+        """Handle a request that has arrived."""
         # Route the request
         decision = self.router.route(request)
         self.routing_decisions.append(decision)
@@ -214,14 +284,14 @@ class SimulationLoop:
             op_id = f"prefill_{self.operation_counter}"
             block_id = f"block_{i}_{request.request_id}"
 
-            # Schedule prefill
-            instance.schedule_prefill(
-                operation_id=op_id,
-                request_id=request.request_id,
-                block_id=block_id,
-                num_tokens=block_info.num_tokens,
-                kv_cache_bytes=block_info.kv_cache_bytes,
-                current_time=self.current_time,
+            # Schedule prefill and get completion time
+            completion_time = self._schedule_prefill(
+                op_id,
+                request.request_id,
+                block_id,
+                block_info.num_tokens,
+                block_info.kv_cache_bytes,
+                decision.instance_id,
             )
 
             # Track this prefill operation
@@ -234,11 +304,48 @@ class SimulationLoop:
                 "block_id": block_id,
             }
 
+            # Schedule completion event
+            self.event_sequence += 1
+            event = Event(
+                time=completion_time,
+                event_type=EventType.PREFILL_COMPLETE,
+                sequence=self.event_sequence,
+                request_id=request.request_id,
+                block_id=block_id,
+                instance_id=decision.instance_id,
+            )
+            heapq.heappush(self.event_queue, event)
+
         # If all blocks are cached, start decode immediately
         if prefill_block_start >= len(request.prefix_blocks):
             self._start_decode(request, decision)
 
         self.active_requests[request.request_id] = (request, decision)
+
+    def _schedule_prefill(
+        self,
+        operation_id: str,
+        request_id: str,
+        block_id: str,
+        num_tokens: int,
+        kv_cache_bytes: int,
+        instance_id: str,
+    ) -> float:
+        """
+        Schedule a prefill operation and return completion time.
+
+        Does NOT add block to instance yet; that happens on completion event.
+        """
+        instance = self.instances[instance_id]
+
+        # Calculate prefill time
+        prefill_throughput_tokens_per_ms = (
+            instance.config.prefill_throughput_tokens_per_sec / 1000.0
+        )
+        prefill_time_ms = num_tokens / prefill_throughput_tokens_per_ms
+        completion_time = self.current_time + prefill_time_ms
+
+        return completion_time
 
     def _handle_prefill_complete(self, request_id: str, block_id: str) -> None:
         """Handle completion of a prefill operation."""
@@ -266,6 +373,9 @@ class SimulationLoop:
 
         if op_id_to_delete:
             del self.pending_prefills[op_id_to_delete]
+
+        # Add block to GPU instance HBM
+        instance.add_block(block_id, op_metadata["block_info"].kv_cache_bytes, self.current_time)
 
         # Add block to state machine
         new_block = Block(
@@ -296,9 +406,23 @@ class SimulationLoop:
     def _start_decode(self, request: Request, decision: RoutingDecision) -> None:
         """Start decode phase for a request."""
         instance = self.instances[decision.instance_id]
-        instance.start_decode(request.request_id, request.target_output_tokens)
+
+        # Estimate decode time: target_tokens * latency_per_token_ms
+        decode_time_ms = request.target_output_tokens * instance.config.decode_latency_per_token_ms
+        decode_complete_time = self.current_time + decode_time_ms
 
         self.request_metrics[request.request_id].decode_start_time = self.current_time
+
+        # Schedule decode complete event
+        self.event_sequence += 1
+        event = Event(
+            time=decode_complete_time,
+            event_type=EventType.DECODE_COMPLETE,
+            sequence=self.event_sequence,
+            request_id=request.request_id,
+            instance_id=decision.instance_id,
+        )
+        heapq.heappush(self.event_queue, event)
 
     def _handle_decode_complete(self, request_id: str) -> None:
         """Handle completion of a decode phase."""
@@ -365,14 +489,14 @@ class SimulationLoop:
                 "max": max(latencies),
                 "avg": sum(latencies) / len(latencies),
                 "p50": latencies[len(latencies) // 2],
-                "p99": latencies[int(len(latencies) * 0.99)],
+                "p99": latencies[int(len(latencies) * 0.99)] if len(latencies) > 100 else latencies[-1],
             },
             "ttft_ms": {
                 "min": min(ttfts),
                 "max": max(ttfts),
                 "avg": sum(ttfts) / len(ttfts),
                 "p50": ttfts[len(ttfts) // 2],
-                "p99": ttfts[int(len(ttfts) * 0.99)],
+                "p99": ttfts[int(len(ttfts) * 0.99)] if len(ttfts) > 100 else ttfts[-1],
             },
             "instance_telemetry": {
                 iid: instance.get_telemetry()

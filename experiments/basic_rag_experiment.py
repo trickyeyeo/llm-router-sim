@@ -5,7 +5,7 @@ Simulates RAG workload with shared retrieval context.
 Compares performance with 40% retrieval overlap.
 """
 
-from simulator.simulation_loop import SimulationLoop
+from simulator.simulation_loop import EventDrivenSimulation
 from simulator.workload import RAGWorkload
 from simulator.gpu_backend import GPUInstanceConfig
 import json
@@ -43,12 +43,11 @@ def run_rag_experiment():
         seed=42,
     )
 
-    # Create and run simulation
-    sim = SimulationLoop(
+    # Create and run simulation (event-driven, much faster than time-stepped)
+    sim = EventDrivenSimulation(
         workload_gen=workload,
         instances_config=instances_config,
         heartbeat_interval_ms=100.0,
-        time_step_ms=1.0,
     )
 
     print("Running RAG experiment for 10 seconds...")
