@@ -313,3 +313,125 @@ class FewShotWorkload(WorkloadGenerator):
             self.last_arrival_time = next_arrival
 
         return requests
+
+
+class MultiTurnWorkload(WorkloadGenerator):
+    """
+    Multi-turn conversation workload: simulates N sessions with M turns each.
+
+    Prefix structure (grows each turn):
+    - Block 1: System prompt (constant, e.g., agent instructions)
+    - Block 2: Conversation history (grows: turn1_q+a, then +turn2_q+a, etc.)
+    - Block 3: Current user query (varies per turn)
+
+    Hierarchical hashing enables cache reuse:
+    - Turn 1: hash_system, hash_system_history1, hash_system_history1_query
+    - Turn 2: hash_system (reused!), hash_system_history2 (new, depends on history1), hash_query2 (new)
+    - Turn 3: hash_system (reused!), hash_system_history3 (new), hash_query3 (new)
+
+    Later turns reuse earlier blocks via hierarchical chain.
+    """
+
+    def __init__(
+        self,
+        num_sessions: int = 5,
+        turns_per_session: int = 5,
+        turn_interval_ms: float = 1000.0,  # ~1 second between turns (agent think time)
+        system_prompt_tokens: int = 512,
+        tokens_per_turn_q_and_a: int = 384,  # ~128 tokens question + ~256 tokens answer
+        user_query_tokens: int = 128,
+        output_tokens_mean: int = 256,
+        kv_cache_bytes_per_token: int = 512000,  # ~512KB per token (Llama-70B)
+        seed: int = 42,
+    ):
+        super().__init__(seed)
+        self.num_sessions = num_sessions
+        self.turns_per_session = turns_per_session
+        self.turn_interval_ms = turn_interval_ms
+        self.system_prompt_tokens = system_prompt_tokens
+        self.tokens_per_turn_q_and_a = tokens_per_turn_q_and_a
+        self.user_query_tokens = user_query_tokens
+        self.output_tokens_mean = output_tokens_mean
+        self.kv_cache_bytes_per_token = kv_cache_bytes_per_token
+
+        self.request_counter = 0
+
+        # Pre-generate all turns for all sessions
+        self.all_requests = self._generate_all_turns()
+        self.request_index = 0
+
+    def _generate_all_turns(self) -> List[Request]:
+        """Pre-generate all turn requests across all sessions."""
+        requests = []
+
+        for session_id in range(self.num_sessions):
+            # Each session starts at a different time (staggered sessions)
+            session_start_time = session_id * self.turn_interval_ms * 1.5  # Stagger sessions
+
+            for turn_number in range(1, self.turns_per_session + 1):
+                self.request_counter += 1
+                arrival_time = session_start_time + (turn_number - 1) * self.turn_interval_ms
+
+                # Build prefix blocks with growing history
+                prefix_blocks = []
+
+                # Block 1: System prompt (constant across all turns)
+                prefix_blocks.append(
+                    PrefixBlock(
+                        name="system",
+                        hash_value="hash_system_prompt",
+                        num_tokens=self.system_prompt_tokens,
+                        kv_cache_bytes=self.system_prompt_tokens * self.kv_cache_bytes_per_token,
+                    )
+                )
+
+                # Block 2: Conversation history (grows each turn)
+                history_tokens = self.tokens_per_turn_q_and_a * (turn_number - 1)
+                if history_tokens > 0:
+                    history_hash = f"hash_history_session{session_id}_turn{turn_number}"
+                    prefix_blocks.append(
+                        PrefixBlock(
+                            name="history",
+                            hash_value=history_hash,
+                            num_tokens=history_tokens,
+                            kv_cache_bytes=history_tokens * self.kv_cache_bytes_per_token,
+                        )
+                    )
+
+                # Block 3: Current user query (always new)
+                prefix_blocks.append(
+                    PrefixBlock(
+                        name="query",
+                        hash_value=f"hash_query_session{session_id}_turn{turn_number}",
+                        num_tokens=self.user_query_tokens,
+                        kv_cache_bytes=self.user_query_tokens * self.kv_cache_bytes_per_token,
+                    )
+                )
+
+                output_tokens = max(1, int(random.gauss(self.output_tokens_mean, 50)))
+
+                requests.append(
+                    Request(
+                        request_id=f"req_{self.request_counter}",
+                        arrival_time=arrival_time,
+                        prefix_blocks=prefix_blocks,
+                        target_output_tokens=output_tokens,
+                        model_id="H100-405B",
+                    )
+                )
+
+        return requests
+
+    def generate_arrivals(self, current_time: float) -> List[Request]:
+        """Generate arrivals up to current_time."""
+        arrivals = []
+
+        while self.request_index < len(self.all_requests):
+            request = self.all_requests[self.request_index]
+            if request.arrival_time <= current_time:
+                arrivals.append(request)
+                self.request_index += 1
+            else:
+                break
+
+        return arrivals
