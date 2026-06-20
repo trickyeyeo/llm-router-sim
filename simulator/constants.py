@@ -9,6 +9,72 @@ from dataclasses import dataclass
 
 
 @dataclass
+class NetworkConfig:
+    """Configuration for network capabilities (for P2P KV transfers)."""
+
+    network_type: str  # "rdma" or "tcp"
+    bandwidth_gbps: float  # Gigabits per second
+    bandwidth_bytes_per_ms: float  # Bytes per millisecond (for simulation)
+
+
+# Network technology options
+NETWORK_RDMA = NetworkConfig(
+    network_type="rdma",
+    bandwidth_gbps=100.0,
+    bandwidth_bytes_per_ms=12_500.0,  # 100 Gbps / 8 bits per byte / 1000 ms
+)
+
+NETWORK_TCP = NetworkConfig(
+    network_type="tcp",
+    bandwidth_gbps=10.0,
+    bandwidth_bytes_per_ms=1_250.0,  # 10 Gbps / 8 bits per byte / 1000 ms
+)
+
+
+@dataclass
+class FailureInjectionConfig:
+    """Configuration for failure injection in simulation (Phase 3)."""
+
+    enabled: bool = False
+    failure_rate: float = 0.0  # Probability of failure per request (0.0-1.0)
+    failure_detection_delay_ms: float = 100.0  # Heartbeat interval for detection
+    failure_recovery_time_ms: float = 5000.0  # Time to recover from failure
+    failure_type: str = "random"  # "random" | "cascading" | "periodic" (Phase 3)
+
+
+@dataclass
+class RoutingWeights:
+    """Weights for scoring-based router (prevents thundering herds)."""
+
+    # Cache value weight: (matched_tokens / total_tokens) * prefill_time_saved * w_cache
+    w_cache: float = 1.0
+
+    # Queue depth penalties (higher weight = stronger penalty for queue)
+    w_prefill_queue: float = 0.1  # Per prefill request in queue (heavy: long latency)
+    w_decode_queue: float = 0.05  # Per decode request in queue (lighter: fast latency)
+
+    # HBM utilization penalty (soft threshold, not binary)
+    w_hbm: float = 2.0  # Penalty scales with utilization
+
+    # Tie-breaking noise: add random value when scores are close
+    noise_epsilon: float = 1.0  # Scores within this range get noise
+    noise_magnitude: float = 0.5  # Max random noise to add
+
+
+# Default weights (tuned to prevent thundering herds while respecting cache)
+# Key insight: w_prefill_queue is high because each queued prefill adds ~5-10s latency
+# w_cache should be comparable so 256ms cache advantage doesn't override 10 queued requests
+DEFAULT_ROUTING_WEIGHTS = RoutingWeights(
+    w_cache=1.0,
+    w_prefill_queue=0.5,  # Each queued prefill costs ~0.5 points (high latency impact)
+    w_decode_queue=0.1,   # Decode queues are lighter (decode is fast)
+    w_hbm=3.0,            # HBM utilization penalty (indirect impact on future hits)
+    noise_epsilon=1.0,
+    noise_magnitude=0.5,
+)
+
+
+@dataclass
 class ModelConfig:
     """Configuration for an LLM or SLM model."""
 
@@ -67,6 +133,8 @@ class GPUConfig:
     decode_latency_per_token_ms: float
     # Maximum batch size during decode
     max_batch_size: int
+    # Network capability for P2P KV transfers
+    network_type: str = "rdma"  # "rdma" or "tcp"
 
 
 # H100 80GB (for LLMs like 405B, 70B)

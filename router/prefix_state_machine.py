@@ -14,6 +14,21 @@ import time
 
 
 @dataclass
+class TransferState:
+    """Represents a P2P KV block transfer between GPU instances."""
+
+    transfer_id: str
+    block_id: str
+    source_instance: str
+    target_instance: str
+    kv_cache_bytes: int
+    start_time: float
+    estimated_complete_time: float
+    status: str = "pending"  # "pending" | "complete" | "failed"
+    failure_reason: Optional[str] = None
+
+
+@dataclass
 class Block:
     """Represents a cached KV block on a GPU instance."""
 
@@ -62,6 +77,7 @@ class PrefixStateMachine:
         self.chains: Dict[str, str] = {}  # chain_hash → block_id (fast lookup)
         self.instance_epochs: Dict[str, int] = {}  # instance_id → latest epoch
         self.instance_state_hashes: Dict[str, str] = {}  # instance_id → state hash
+        self.transfers: Dict[str, TransferState] = {}  # transfer_id → TransferState
 
     def add_block(self, block: Block) -> None:
         """
@@ -208,9 +224,67 @@ class PrefixStateMachine:
         """Get all blocks on a given instance."""
         return [b for b in self.blocks.values() if b.instance_id == instance_id]
 
+    def initiate_transfer(
+        self,
+        transfer_id: str,
+        block_id: str,
+        source_instance: str,
+        target_instance: str,
+        kv_cache_bytes: int,
+        start_time: float,
+        estimated_complete_time: float,
+    ) -> TransferState:
+        """
+        Record a P2P KV block transfer request.
+
+        Args:
+            transfer_id: Unique transfer identifier
+            block_id: Block being transferred
+            source_instance: GPU sending the block
+            target_instance: GPU receiving the block
+            kv_cache_bytes: Size of KV cache to transfer
+            start_time: Simulation time when transfer starts
+            estimated_complete_time: Estimated time when transfer completes
+
+        Returns:
+            TransferState for tracking
+        """
+        transfer = TransferState(
+            transfer_id=transfer_id,
+            block_id=block_id,
+            source_instance=source_instance,
+            target_instance=target_instance,
+            kv_cache_bytes=kv_cache_bytes,
+            start_time=start_time,
+            estimated_complete_time=estimated_complete_time,
+            status="pending",
+        )
+        self.transfers[transfer_id] = transfer
+        return transfer
+
+    def complete_transfer(self, transfer_id: str) -> Optional[TransferState]:
+        """Mark a transfer as complete."""
+        if transfer_id in self.transfers:
+            self.transfers[transfer_id].status = "complete"
+            return self.transfers[transfer_id]
+        return None
+
+    def fail_transfer(self, transfer_id: str, reason: str) -> Optional[TransferState]:
+        """Mark a transfer as failed."""
+        if transfer_id in self.transfers:
+            self.transfers[transfer_id].status = "failed"
+            self.transfers[transfer_id].failure_reason = reason
+            return self.transfers[transfer_id]
+        return None
+
+    def get_transfers_in_flight(self) -> List[TransferState]:
+        """Get all pending transfers."""
+        return [t for t in self.transfers.values() if t.status == "pending"]
+
     def get_stats(self) -> Dict:
         """Return current state machine metrics."""
         blocks = list(self.blocks.values())
+        transfers = list(self.transfers.values())
         return {
             "num_blocks": len(blocks),
             "pinned_blocks": sum(1 for b in blocks if b.pin_count > 0),
@@ -218,4 +292,7 @@ class PrefixStateMachine:
             "total_kv_cache_bytes": sum(b.kv_cache_bytes for b in blocks),
             "total_pin_count": sum(b.pin_count for b in blocks),
             "num_instances": len(self.instance_epochs),
+            "transfers_pending": sum(1 for t in transfers if t.status == "pending"),
+            "transfers_completed": sum(1 for t in transfers if t.status == "complete"),
+            "transfers_failed": sum(1 for t in transfers if t.status == "failed"),
         }
