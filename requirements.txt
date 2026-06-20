@@ -1,1 +1,12 @@
+# Core simulation dependencies (existing)
 pytest>=7.0
+
+# Backend (webapp) dependencies
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.7.0
+python-multipart>=0.0.7
+
+# These should already be in your venv from simulation development
+# But including for completeness:
+# (simulation packages are in the project itself, not pip)
