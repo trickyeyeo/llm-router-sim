@@ -19,7 +19,12 @@ interface SimState {
 }
 
 export function useSimulation(
-  params: { num_sessions: number; turns_per_session: number },
+  params: {
+    num_sessions: number;
+    turns_per_session: number;
+    failure_rate?: number;
+    network_type?: string;
+  },
   shouldRun: boolean
 ) {
   const [simState, setSimState] = useState<SimState>({
@@ -43,6 +48,8 @@ export function useSimulation(
     const query = new URLSearchParams({
       num_sessions: params.num_sessions.toString(),
       turns_per_session: params.turns_per_session.toString(),
+      failure_rate: (params.failure_rate || 0).toString(),
+      network_type: params.network_type || 'rdma',
     });
 
     const eventSource = new EventSource(`http://localhost:8000/simulate?${query}`);

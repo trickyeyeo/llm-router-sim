@@ -12,6 +12,8 @@ export default function App() {
   const [params, setParams] = useState({
     num_sessions: 5,
     turns_per_session: 5,
+    failure_rate: 0,
+    network_type: 'rdma',
   });
 
   const [shouldRun, setShouldRun] = useState(false);

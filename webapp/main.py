@@ -110,7 +110,7 @@ async def health():
 
 @app.get("/simulate")
 async def simulate(
-    num_sessions: int = Query(5, ge=1, le=20),
+    num_sessions: int = Query(5, ge=1, le=100),
     turns_per_session: int = Query(5, ge=1, le=10),
     failure_rate: float = Query(0.0, ge=0.0, le=1.0),
     network_type: str = Query("rdma", regex="^(rdma|tcp)$"),
