@@ -156,6 +156,7 @@ class EventDrivenSimulation:
         failure_rate: float = 0.0,
         failure_recovery_time_ms: float = 5000.0,
         network_type: str = "rdma",
+        enable_p2p_recovery: bool = True,
     ):
         self.workload_gen = workload_gen
         self.heartbeat_interval_ms = heartbeat_interval_ms
@@ -166,6 +167,7 @@ class EventDrivenSimulation:
         self.failure_rate = failure_rate
         self.failure_recovery_time_ms = failure_recovery_time_ms
         self.network_type = network_type
+        self.enable_p2p_recovery = enable_p2p_recovery
 
         # State machine
         self.state_machine = PrefixStateMachine()

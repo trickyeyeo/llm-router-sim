@@ -5,7 +5,7 @@ export interface DemoConfig {
   description: string;
   expectedResults: string;
   whyItMatters: string;
-  comparisonMode: 'stateless_vs_stateful' | 'stateful_baseline_vs_with_p2p' | 'stateful_rdma_vs_tcp';
+  comparisonMode: 'stateless_vs_stateful' | 'stateful_baseline_vs_with_p2p';
   params: {
     num_sessions: number;
     turns_per_session: number;
@@ -19,11 +19,11 @@ export interface DemoConfig {
 
 const DEMO_PRESETS: DemoConfig[] = [
   {
-    name: 'Thundering Herd Prevention',
-    description: 'Shows how scoring-based routing prevents all requests from queuing on one GPU',
+    name: 'Caching Affinity',
+    description: 'Shows how scoring-based routing promotes cache hits and reuse for capacity improvement',
     comparisonMode: 'stateless_vs_stateful',
-    expectedResults: 'Stateful: 85-95% cache hit rate, balanced queue depth. Stateless: 0% cache hits, heavy queue on random GPU.',
-    whyItMatters: 'Demonstrates capacity improvement: stateful routing distributes load intelligently while maintaining cache reuse.',
+    expectedResults: 'Stateful: ~99% cache hit rate on GPU0 (owns system prompt), ~2.8x throughput vs stateless. Stateless: ~0% hits, balanced load across both GPUs via round-robin. Key: cache concentration achieves 2.5x+ capacity.',
+    whyItMatters: 'Demonstrates prefix-affinity routing: routes to cache owner rather than spreading load randomly, preventing thundering herd queues while maximizing cache reuse.',
     params: {
       num_sessions: 50,
       turns_per_session: 3,
@@ -33,10 +33,10 @@ const DEMO_PRESETS: DemoConfig[] = [
   },
   {
     name: 'Graceful Degradation',
-    description: 'System continues serving requests despite GPU failures and recovers via P2P transfers',
+    description: 'System recovers from GPU failures via P2P KV cache transfers, minimizing latency impact',
     comparisonMode: 'stateful_baseline_vs_with_p2p',
-    expectedResults: 'Baseline (no failures): 85-95% cache hit. With 20% failures: latency spike, then recovery via P2P transfers.',
-    whyItMatters: 'Proves resilience story: even with failures, system recovers automatically with P2P KV cache transfers.',
+    expectedResults: 'Baseline (20% failures, no recovery): avg TTFT ~650ms, p99 TTFT ~450ms. With P2P recovery: avg TTFT ~570ms, p99 TTFT ~380ms. RDMA avg transfer ~12ms. P2P keeps failure cost <15% latency spike vs full re-route cascades.',
+    whyItMatters: 'Demonstrates resilience: P2P recovery limits failure cost to latency spikes, not throughput collapse. RDMA transfers (pinned blocks direct, LRU blocks with fallback to TCP if eviction fails) keep overhead minimal.',
     params: {
       num_sessions: 20,
       turns_per_session: 2,
@@ -44,20 +44,7 @@ const DEMO_PRESETS: DemoConfig[] = [
       network_type: 'rdma',
     },
     baselineParams: {
-      failure_rate: 0,
-    },
-  },
-  {
-    name: 'RDMA vs TCP Network',
-    description: 'Compare P2P transfer performance: high-speed RDMA vs standard TCP',
-    comparisonMode: 'stateful_rdma_vs_tcp',
-    expectedResults: 'RDMA: Transfers in ~10-15ms. TCP: Transfers in ~100-150ms. Gap: 15-25% latency improvement with RDMA.',
-    whyItMatters: 'Shows why RDMA matters: 10x faster transfers mean failures have minimal impact on customer latency.',
-    params: {
-      num_sessions: 5,
-      turns_per_session: 3,
-      failure_rate: 0.05,
-      network_type: 'rdma',
+      failure_rate: 0.2,
     },
   },
 ];
@@ -125,19 +112,19 @@ export default function DemoPresets({ onSelectDemo, disabled }: DemoPresetsProps
           <div className="bg-slate-800/50 rounded p-3 space-y-2 text-xs">
             <div>
               <span className="text-slate-400">Sessions:</span>
-              <span className="text-slate-200 ml-2 font-mono">{activeDemoConfig.num_sessions}</span>
+              <span className="text-slate-200 ml-2 font-mono">{activeDemoConfig.params.num_sessions}</span>
             </div>
             <div>
               <span className="text-slate-400">Turns/Session:</span>
-              <span className="text-slate-200 ml-2 font-mono">{activeDemoConfig.turns_per_session}</span>
+              <span className="text-slate-200 ml-2 font-mono">{activeDemoConfig.params.turns_per_session}</span>
             </div>
             <div>
               <span className="text-slate-400">Failure Rate:</span>
-              <span className="text-slate-200 ml-2 font-mono">{(activeDemoConfig.failure_rate || 0) * 100}%</span>
+              <span className="text-slate-200 ml-2 font-mono">{activeDemoConfig.params.failure_rate * 100}%</span>
             </div>
             <div>
               <span className="text-slate-400">Network:</span>
-              <span className="text-slate-200 ml-2 font-mono uppercase">{activeDemoConfig.network_type}</span>
+              <span className="text-slate-200 ml-2 font-mono uppercase">{activeDemoConfig.params.network_type}</span>
             </div>
           </div>
         </div>

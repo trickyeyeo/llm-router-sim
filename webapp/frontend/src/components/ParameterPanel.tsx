@@ -1,13 +1,9 @@
 import { useState } from 'react';
-import DemoPresets from './DemoPresets';
+import DemoPresets, { DemoConfig } from './DemoPresets';
+import type { SimulationParams } from '../hooks/useSimulation';
 
 interface ParameterPanelProps {
-  onRun: (params: {
-    num_sessions: number;
-    turns_per_session: number;
-    failure_rate: number;
-    network_type: string;
-  }) => void;
+  onRun: (params: SimulationParams) => void;
   disabled: boolean;
 }
 
@@ -24,27 +20,28 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
       turns_per_session: turns,
       failure_rate: failureRate,
       network_type: networkType,
+      comparisonMode: 'stateless_vs_stateful',
     });
   };
 
-  const handleDemoSelect = (params: {
-    num_sessions: number;
-    turns_per_session: number;
-    failure_rate: number;
-    network_type: string;
-  }) => {
-    setSessions(params.num_sessions);
-    setTurns(params.turns_per_session);
-    setFailureRate(params.failure_rate);
-    setNetworkType(params.network_type);
+  const handleDemoSelect = (demoConfig: DemoConfig) => {
+    setSessions(demoConfig.params.num_sessions);
+    setTurns(demoConfig.params.turns_per_session);
+    setFailureRate(demoConfig.params.failure_rate);
+    setNetworkType(demoConfig.params.network_type);
     setDemoActive(true);
     // Auto-run the demo
-    setTimeout(
-      () => {
-        onRun(params);
-      },
-      200
-    );
+    setTimeout(() => {
+      const simParams: SimulationParams = {
+        num_sessions: demoConfig.params.num_sessions,
+        turns_per_session: demoConfig.params.turns_per_session,
+        failure_rate: demoConfig.params.failure_rate,
+        network_type: demoConfig.params.network_type,
+        comparisonMode: demoConfig.comparisonMode,
+        baselineFailureRate: demoConfig.baselineParams?.failure_rate,
+      };
+      onRun(simParams);
+    }, 200);
   };
 
   return (

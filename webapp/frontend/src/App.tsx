@@ -5,21 +5,22 @@ import GPUCards from './components/GPUCards';
 import KeyMetrics from './components/KeyMetrics';
 import ComparisonCharts from './components/ComparisonCharts';
 import ExpertAccordion from './components/ExpertAccordion';
-import { useSimulation } from './hooks/useSimulation';
+import { useSimulation, type SimulationParams } from './hooks/useSimulation';
 import { downloadPDF } from './utils/pdfExport';
 
 export default function App() {
-  const [params, setParams] = useState({
+  const [params, setParams] = useState<SimulationParams>({
     num_sessions: 5,
     turns_per_session: 5,
     failure_rate: 0,
     network_type: 'rdma',
+    comparisonMode: 'stateless_vs_stateful',
   });
 
   const [shouldRun, setShouldRun] = useState(false);
   const { simState, running } = useSimulation(params, shouldRun);
 
-  const handleRun = (newParams: typeof params) => {
+  const handleRun = (newParams: SimulationParams) => {
     setParams(newParams);
     setShouldRun(true);
   };
@@ -53,33 +54,51 @@ export default function App() {
                 progress={simState.progress}
                 currentTime={simState.current_time_ms}
                 totalTime={simState.total_time_ms}
-                requestsStateless={simState.stateless?.requests}
-                requestsStateful={simState.stateful?.requests}
+                requestsStateless={simState.left?.requests}
+                requestsStateful={simState.right?.requests}
               />
             )}
 
             {/* GPU Cards */}
             {(running || simState.final_metrics) && (
               <GPUCards
-                stateless={simState.stateless?.gpus}
-                stateful={simState.stateful?.gpus}
+                stateless={simState.left?.gpus}
+                stateful={simState.right?.gpus}
+                leftLabel={simState.left?.label}
+                rightLabel={simState.right?.label}
+                comparisonMode={simState.comparisonMode}
               />
             )}
 
             {/* Key Metrics */}
             {simState.final_metrics && (
-              <KeyMetrics metrics={simState.final_metrics} />
+              <KeyMetrics
+                metrics={simState.final_metrics}
+                leftLabel={simState.left?.label}
+                rightLabel={simState.right?.label}
+                comparisonMode={simState.comparisonMode}
+              />
             )}
 
             {/* Comparison Charts */}
             {simState.final_metrics && (
-              <ComparisonCharts metrics={simState.final_metrics} />
+              <ComparisonCharts
+                metrics={simState.final_metrics}
+                leftLabel={simState.left?.label}
+                rightLabel={simState.right?.label}
+                comparisonMode={simState.comparisonMode}
+              />
             )}
 
             {/* Expert Accordion */}
             {simState.final_metrics && (
               <>
-                <ExpertAccordion metrics={simState.final_metrics} />
+                <ExpertAccordion
+                  metrics={simState.final_metrics}
+                  leftLabel={simState.left?.label}
+                  rightLabel={simState.right?.label}
+                  comparisonMode={simState.comparisonMode}
+                />
 
                 {/* PDF Export Button */}
                 <div className="flex justify-end pt-4">

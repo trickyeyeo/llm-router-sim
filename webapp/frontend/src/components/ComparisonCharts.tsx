@@ -2,29 +2,41 @@ import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Cartesia
 
 interface ComparisonChartsProps {
   metrics: any;
+  leftLabel?: string;
+  rightLabel?: string;
+  comparisonMode?: string;
 }
 
-export default function ComparisonCharts({ metrics: _metrics }: ComparisonChartsProps) {
+export default function ComparisonCharts({
+  metrics: _metrics,
+  leftLabel = 'Left',
+  rightLabel = 'Right',
+  comparisonMode = 'stateless_vs_stateful',
+}: ComparisonChartsProps) {
+  // Create shorthand labels for charts
+  const leftShort = leftLabel.split('(')[0].trim();
+  const rightShort = rightLabel.split('(')[0].trim();
+
   // Prepare data for charts - use placeholder data for now
   const chartData = [
-    { turn: 1, stateless: 683, stateful: 683 },
-    { turn: 2, stateless: 376, stateful: 205 },
-    { turn: 3, stateless: 580, stateful: 529 },
-    { turn: 4, stateless: 870, stateful: 870 },
-    { turn: 5, stateless: 478, stateful: 410 },
+    { turn: 1, left: 683, right: 683 },
+    { turn: 2, left: 376, right: 205 },
+    { turn: 3, left: 580, right: 529 },
+    { turn: 4, left: 870, right: 870 },
+    { turn: 5, left: 478, right: 410 },
   ];
 
   const utilizationData = [
-    { time: 0, stateless: 10, stateful: 15 },
-    { time: 10, stateless: 55, stateful: 35 },
-    { time: 20, stateless: 85, stateful: 55 },
-    { time: 30, stateless: 99, stateful: 65 },
-    { time: 35, stateless: 99, stateful: 63 },
+    { time: 0, left: 10, right: 15 },
+    { time: 10, left: 55, right: 35 },
+    { time: 20, left: 85, right: 55 },
+    { time: 30, left: 99, right: 65 },
+    { time: 35, left: 99, right: 63 },
   ];
 
   const throughputData = [
-    { benchmark: 'Stateless', value: 2100 },
-    { benchmark: 'Stateful', value: 2398 },
+    { benchmark: leftShort, value: 2100 },
+    { benchmark: rightShort, value: 2398 },
   ];
 
   return (
@@ -42,8 +54,8 @@ export default function ComparisonCharts({ metrics: _metrics }: ComparisonCharts
               <YAxis stroke="#94a3b8" />
               <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }} />
               <Legend />
-              <Line type="monotone" dataKey="stateless" stroke="#ef4444" strokeWidth={2} name="Stateless" />
-              <Line type="monotone" dataKey="stateful" stroke="#22c55e" strokeWidth={2} name="Stateful" />
+              <Line type="monotone" dataKey="left" stroke="#ef4444" strokeWidth={2} name={leftShort} />
+              <Line type="monotone" dataKey="right" stroke="#22c55e" strokeWidth={2} name={rightShort} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -58,8 +70,8 @@ export default function ComparisonCharts({ metrics: _metrics }: ComparisonCharts
               <YAxis stroke="#94a3b8" />
               <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }} />
               <Legend />
-              <Area type="monotone" dataKey="stateless" stroke="#ef4444" fill="#ef4444" fillOpacity={0.3} name="Stateless" />
-              <Area type="monotone" dataKey="stateful" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} name="Stateful" />
+              <Area type="monotone" dataKey="left" stroke="#ef4444" fill="#ef4444" fillOpacity={0.3} name={leftShort} />
+              <Area type="monotone" dataKey="right" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} name={rightShort} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -78,17 +90,25 @@ export default function ComparisonCharts({ metrics: _metrics }: ComparisonCharts
           </ResponsiveContainer>
         </div>
 
-        {/* Cache Hit Rate Progression */}
+        {/* Cache Hit Rate / Transfer Success */}
         <div className="chart-container">
-          <h4 className="text-lg font-semibold mb-4">Cache Hit Rate (%)</h4>
+          <h4 className="text-lg font-semibold mb-4">
+            {comparisonMode === 'stateful_baseline_vs_with_p2p' ? 'P2P Transfer Metrics' : 'Cache Hit Rate (%)'}
+          </h4>
           <div className="flex items-end justify-around h-64">
             <div className="text-center">
-              <div className="text-sm text-slate-400 mb-2">Stateless</div>
-              <div className="text-4xl font-bold text-red-500">0%</div>
+              <div className="text-sm text-slate-400 mb-2">{leftShort}</div>
+              <div className={`text-4xl font-bold ${comparisonMode === 'stateful_baseline_vs_with_p2p' ? 'text-slate-500' : 'text-red-500'}`}>
+                {comparisonMode === 'stateful_baseline_vs_with_p2p' ? '0' : '0%'}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">{comparisonMode === 'stateful_baseline_vs_with_p2p' ? 'N/A' : 'transfers'}</div>
             </div>
             <div className="text-center">
-              <div className="text-sm text-slate-400 mb-2">Stateful</div>
-              <div className="text-4xl font-bold text-green-500">96%</div>
+              <div className="text-sm text-slate-400 mb-2">{rightShort}</div>
+              <div className={`text-4xl font-bold ${comparisonMode === 'stateful_baseline_vs_with_p2p' ? 'text-green-500' : 'text-green-500'}`}>
+                {comparisonMode === 'stateful_baseline_vs_with_p2p' ? '~98%' : '96%'}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">{comparisonMode === 'stateful_baseline_vs_with_p2p' ? 'success' : 'hits'}</div>
             </div>
           </div>
         </div>

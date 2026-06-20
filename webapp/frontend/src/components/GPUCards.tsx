@@ -16,6 +16,9 @@ interface GPUState {
 interface GPUCardsProps {
   stateless?: GPUState;
   stateful?: GPUState;
+  leftLabel?: string;
+  rightLabel?: string;
+  comparisonMode?: string;
 }
 
 function getUtilizationColor(util: number): string {
@@ -100,15 +103,20 @@ function GPUCard({
   );
 }
 
-export default function GPUCards({ stateless, stateful }: GPUCardsProps) {
+export default function GPUCards({
+  stateless,
+  stateful,
+  leftLabel = 'Stateless (Round-Robin)',
+  rightLabel = 'Stateful (Prefix-Aware)',
+}: GPUCardsProps) {
   return (
     <div className="metric-card">
       <h3 className="text-lg font-semibold mb-6">GPU Utilization</h3>
 
       <div className="grid grid-cols-2 gap-6">
-        {/* Stateless GPUs */}
+        {/* Left Column */}
         <div>
-          <h4 className="text-sm font-semibold text-slate-400 mb-4">Stateless (Round-Robin)</h4>
+          <h4 className="text-sm font-semibold text-slate-400 mb-4">{leftLabel}</h4>
           <div className="space-y-4">
             {stateless?.gpu0 && (
               <GPUCard
@@ -133,9 +141,9 @@ export default function GPUCards({ stateless, stateful }: GPUCardsProps) {
           </div>
         </div>
 
-        {/* Stateful GPUs */}
+        {/* Right Column */}
         <div>
-          <h4 className="text-sm font-semibold text-slate-400 mb-4">Stateful (Prefix-Aware)</h4>
+          <h4 className="text-sm font-semibold text-slate-400 mb-4">{rightLabel}</h4>
           <div className="space-y-4">
             {stateful?.gpu0 && (
               <GPUCard

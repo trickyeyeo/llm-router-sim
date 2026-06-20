@@ -6,12 +6,14 @@ Streams real-time simulation results to frontend via SSE.
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Add parent directory to path to import simulation modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,6 +33,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files if dist directory exists
+dist_path = Path(__file__).parent / "dist"
+if dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="static")
 
 
 def create_workload(num_sessions: int, turns_per_session: int, seed: int = 42):
@@ -54,6 +61,7 @@ def create_simulation(
     stateful: bool,
     failure_rate: float = 0.0,
     network_type: str = "rdma",
+    enable_p2p_recovery: bool = True,
 ):
     """Create simulation instance."""
     instances_config = [
@@ -71,6 +79,7 @@ def create_simulation(
         failure_rate=failure_rate,
         failure_recovery_time_ms=5000.0,
         network_type=network_type,
+        enable_p2p_recovery=enable_p2p_recovery,
     )
 
 
@@ -114,15 +123,17 @@ async def simulate(
     turns_per_session: int = Query(5, ge=1, le=10),
     failure_rate: float = Query(0.0, ge=0.0, le=1.0),
     network_type: str = Query("rdma", regex="^(rdma|tcp)$"),
+    enable_p2p_recovery: bool = Query(True),
 ):
     """
     Run simulations (stateless and stateful) and stream results.
 
     Query params:
-    - num_sessions: number of concurrent conversation sessions (1-20)
+    - num_sessions: number of concurrent conversation sessions (1-100)
     - turns_per_session: number of turns per session (1-10)
-    - failure_rate: probability of GPU failure per request (0.0-1.0, Phase 3)
-    - network_type: network technology for P2P transfers ("rdma" or "tcp", Phase 3)
+    - failure_rate: probability of GPU failure per request (0.0-1.0)
+    - network_type: network technology for P2P transfers ("rdma" or "tcp")
+    - enable_p2p_recovery: whether to enable P2P recovery for stateful sim (default: True)
 
     Streams SSE events with real-time metrics.
     """
@@ -135,7 +146,8 @@ async def simulate(
         )
         sim_stateful = create_simulation(
             num_sessions, turns_per_session, stateful=True,
-            failure_rate=failure_rate, network_type=network_type
+            failure_rate=failure_rate, network_type=network_type,
+            enable_p2p_recovery=enable_p2p_recovery
         )
 
         # Simulation parameters
@@ -248,4 +260,5 @@ async def simulate(
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
