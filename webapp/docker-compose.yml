@@ -31,15 +31,3 @@ services:
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
-
-  # Proxy to handle API requests (optional, simplifies CORS)
-  proxy:
-    image: caddy:2.7-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    depends_on:
-      - backend
-      - frontend
