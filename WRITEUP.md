@@ -2,8 +2,19 @@
 
 ## What Makes This Interesting
 
-Modern distributed LLM clusters are built on stateless load balancers. Unless we add state and make the routers aware of consecuritve turns of the same conversation, the requests get scattered all over the pool of LLMs with low affinity and an expensive recomputation (prefill). 
+Modern distributed LLM clusters are built on stateless load balancers. By scattering consecutive turns of the same conversation across different physical GPUs, we force the hardware to repeatedly recompute identical conversation history (prefill) on every single turn.  This creates a massive, invisible operational bottleneck:
+* UX Degradation: Users experience frustrating, compounding response lag (TTFT) as conversation histories grow.
+* Financial Waste: Up to 40% of precious GPU compute cycles are wasted doing repetitive recalculations of data we already computed.
 
+In this llm-router sim, we implement some of the key building blocks for stateful LLM-aware routing. Here are some of the key design decisions & tradeoffs
+
+
+* **NATs-based Telemetry**: We have an independent pubsub control stream of health and capacity metrics to decentralize routing decisions.
+* **Scoring over binary thresholds**: We have continuous ranking prevents thundering herd better than "route to GPU if <80% HBM".
+* **On-demand P2P transfers**: Recovery happens lazily when needed, not preemptively. 
+* **LLM vs SLM**: We introduce the possibility of routing to SLMs to minimize cost on heavier newer hardware (missing from the demo).
+* **Separate prefill/decode queue tracking**: In scoring, we separate prefill from decode due to stark differences in cost.
+* **Cache concentration, not spreading**: Routing to cache owner maximizes reuse and throughput. 
 
 ### 1. Cache-Aware Load Balancing (Not Just Utilization)
 
@@ -27,17 +38,6 @@ The design accepts that transfers may timeout → fallback to prefill from scrat
 
 RDMA vs TCP isn't a "pick once" decision—it's surfaced as a **tunable parameter in routing**. This makes visible the 10x latency difference (10-15ms vs 100-150ms) and justifies infrastructure investment in high-speed interconnects. In production, you'd want to measure: do the transfer time savings justify the RDMA NIC cost? This demo lets you see both sides.
 
-## Key Design Decisions & Tradeoffs
-
-| Decision | Why | Tradeoff |
-|----------|-----|----------|
-| **Scoring over binary thresholds** | Continuous ranking prevents thundering herd better than "route to GPU if <80% HBM" | Requires tuned weights; no closed-form optimal |
-| **On-demand P2P transfers** | Recovery happens lazily when needed, not preemptively | Transfer may fail mid-stream; need fallback to prefill from scratch |
-| **Separate prefill/decode queue tracking** | Prefill is 5x more expensive; should penalize differently | More state to track; slightly higher overhead |
-| **Epoch-based failure detection** | Simple, works with async recovery | Coarse granularity; fine-grained health signals lost |
-| **No learning/adaptation** | Hard-coded weights are interpretable and reproducible | Cannot adapt to workload drift; sub-optimal for heterogeneous loads |
-| **Cascade failures on transfer timeout** | Simpler than partial recovery logic | Single transfer failure cascades to full prefill cost |
-| **Cache concentration, not spreading** | Routing to cache owner maximizes reuse and throughput | All 50 sessions concentrate on one GPU (but via affinity, not thundering herd) |
 
 ## Architecture Layers
 
@@ -82,13 +82,15 @@ One gap: **No contention modeling for network links** (assumes infinite bisectio
 
 4. **Separate queue tracking is subtle but essential.** Prefill requests block a GPU for 500ms; decode requests for 50-100ms. Penalizing them equally (same weight) would make prefill-heavy systems prefer light decode queues, losing cache affinity. By weighting prefill 5x heavier, the scoring correctly biases toward cache owner even if it's processing a prefill.
 
-## How I'd Extend This With More Time
+## How I'd Extend This With More Time (Read me!)
 
-- **Adaptive weight learning**: Use request latency feedback to tune cache_weight vs load_penalty online, adapting to workload characteristics
-- **Predictive prefilling**: Anticipate next turns and pre-stage cache before request arrival
-- **Heterogeneous GPU pools**: H100s for prefill, L4s for decode; route by compute affinity and cache ownership
-- **Transfer batching & priorities**: Coalesce small KV transfers; prioritize critical sessions over best-effort
-- **Network simulation**: Model link saturation and contention for P2P transfers, affecting transfer time estimates
-- **Multi-cluster routing**: Extend scoring to remote clusters with inter-cluster latency as a penalty term
-- **Failure prediction**: Use GPU telemetry (thermal, power) to predict failures before they occur, proactive recovery
-- **Queue-aware demos**: Add a third demo showing how high queue depths and utilization interact with scoring
+- **Heterogeneous GPU pools**: H100s for prefill, L4s for decode; route by compute affinity and cache ownership. We planned on doing this but ran out of time.
+- **Add LoRA models and load times**: Specialized models (LoRA) often take up HBM space in real world scenarios and incorporating this in the routing layer (cost of swaps) would be interesting.
+- **Multi-cluster routing** (or even multi cloud routing). Capacity is scarce and reliability over multiple cloud provides can vary. Having a layer-1 router that can make some of these decisions should be able to sit atop this current design.
+- **Incorporating TPUs** TPUs have slightly different constraints in how they fit blocks, but have enormous bisection bandwidth between them.
+
+### Suggestions from Claude (with some annation).
+- **Predictive prefilling**: Anticipate next turns and pre-stage cache before request arrival (this seems too speculative within an assignment, but nice as a followup).
+- **Transfer batching & priorities**: Coalesce small KV transfers; prioritize critical sessions over best-effort (yes).
+- **Network simulation**: Model link saturation and contention for P2P transfers, affecting transfer time estimates (this is less intersting, we already have a large diff between TCP and RDMA).
+- **Failure prediction**: Use GPU telemetry (thermal, power) to predict failures before they occur, proactive recovery (We have some smart versioning in NATs but the problem is "who watches the watcher").
