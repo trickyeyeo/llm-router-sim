@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ParameterPanel from './components/ParameterPanel';
 import ProgressIndicator from './components/ProgressIndicator';
 import GPUCards from './components/GPUCards';

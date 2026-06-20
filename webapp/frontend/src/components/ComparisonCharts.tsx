@@ -1,13 +1,8 @@
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-interface ComparisonChartsProps {
-  metrics: {
-    stateless: any;
-    stateful: any;
-  };
-}
+interface ComparisonChartsProps {}
 
-export default function ComparisonCharts({ metrics }: ComparisonChartsProps) {
+export default function ComparisonCharts({}: ComparisonChartsProps) {
   // Prepare data for charts - use placeholder data for now
   const chartData = [
     { turn: 1, stateless: 683, stateful: 683 },

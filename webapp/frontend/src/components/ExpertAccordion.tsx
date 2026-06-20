@@ -1,13 +1,8 @@
 import { useState } from 'react';
 
-interface ExpertAccordionProps {
-  metrics: {
-    stateless: any;
-    stateful: any;
-  };
-}
+interface ExpertAccordionProps {}
 
-export default function ExpertAccordion({ metrics }: ExpertAccordionProps) {
+export default function ExpertAccordion({}: ExpertAccordionProps) {
   const [openItems, setOpenItems] = useState(['findings']);
 
   const toggleItem = (item: string) => {

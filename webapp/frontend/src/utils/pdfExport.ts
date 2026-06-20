@@ -14,7 +14,7 @@ export async function downloadPDF(simState: any) {
   // Helper function to add text
   const addText = (text: string, size: number = 12, isBold: boolean = false, color: [number, number, number] = [0, 0, 0]) => {
     pdf.setFontSize(size);
-    pdf.setFont(undefined, isBold ? 'bold' : 'normal');
+    pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
     pdf.setTextColor(...color);
     pdf.text(text, 20, yPosition);
     yPosition += size / 2 + 3;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 interface ParameterPanelProps {
   onRun: (params: { num_sessions: number; turns_per_session: number }) => void;
