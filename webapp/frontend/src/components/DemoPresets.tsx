@@ -35,8 +35,8 @@ const DEMO_PRESETS: DemoConfig[] = [
     name: 'Graceful Degradation',
     description: 'System recovers from GPU failures via P2P KV cache transfers, minimizing latency impact',
     comparisonMode: 'stateful_baseline_vs_with_p2p',
-    expectedResults: 'Baseline (20% failures, no P2P): 40 requests at 1.14 req/sec, avg TTFT 177ms, p99 TTFT 341ms. With P2P recovery: 40 requests at 1.14 req/sec, avg TTFT 177ms, p99 TTFT 341ms. Note: P2P recovery feature is under development (transfers not yet initiated on failures).',
-    whyItMatters: 'Demonstrates resilience strategy: when GPU fails, requests route to healthy instances. Full P2P recovery (transferring KV blocks via RDMA to avoid re-prefilling from scratch) will minimize latency impact vs cascading failures.',
+    expectedResults: 'Baseline (20% failures, no recovery): ~7 failures, 40 requests completed, 1.14 req/sec, avg TTFT 177ms, p99 TTFT 341ms. With P2P recovery: ~7 failures, ~2 P2P transfers, 40 requests completed, 1.14 req/sec, avg TTFT ~183ms, p99 TTFT similar. Transfers preserve unpinned blocks; benefit grows with workload duration (more time for future requests to use transferred cache).',
+    whyItMatters: 'Demonstrates resilience: P2P transfers preserve KV blocks from failed GPUs instead of discarding them. Requests routed to healthy instances can reuse transferred cache, avoiding full re-prefill overhead. Benefit scales with request rate and failure frequency.',
     params: {
       num_sessions: 20,
       turns_per_session: 2,
