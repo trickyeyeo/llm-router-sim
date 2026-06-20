@@ -2,7 +2,7 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY webapp/frontend/package*.json ./
-RUN npm ci
+RUN npm ci --prefer-offline --no-audit || npm install
 COPY webapp/frontend .
 RUN npm run build
 
