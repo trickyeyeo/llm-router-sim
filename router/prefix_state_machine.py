@@ -154,7 +154,8 @@ class PrefixStateMachine:
         if block_id in self.blocks:
             block = self.blocks[block_id]
             del self.blocks[block_id]
-            del self.chains[block.own_hash]
+            if block.own_hash in self.chains:
+                del self.chains[block.own_hash]
 
     def update_instance_state(
         self, instance_id: str, epoch: int, state_hash: str

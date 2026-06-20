@@ -84,12 +84,13 @@ class RequestMetrics:
 class SimpleRouter:
     """
     Simple stateful router: sticky to cached instance, round-robin fallback.
-    (Uses cache affinity but ignores load telemetry)
+    (Uses cache affinity and checks health status via telemetry broker)
     """
 
-    def __init__(self, state_machine: PrefixStateMachine, instances: List[str]):
+    def __init__(self, state_machine: PrefixStateMachine, instances: List[str], telemetry_broker=None):
         self.state_machine = state_machine
         self.instances = instances
+        self.telemetry_broker = telemetry_broker
         self.round_robin_index = 0
 
     def route(self, request: Request) -> RoutingDecision:
@@ -98,23 +99,51 @@ class SimpleRouter:
         if cached_block_id:
             block = self.state_machine.get_block(cached_block_id)
             instance_id = block.instance_id
-            return RoutingDecision(
-                request_id=request.request_id,
-                instance_id=instance_id,
-                strategy=RoutingStrategy.CACHE_HIT,
-                cached_block_id=cached_block_id,
-                cache_hit=True,
-            )
-        else:
-            instance_id = self.instances[self.round_robin_index % len(self.instances)]
-            self.round_robin_index += 1
-            return RoutingDecision(
-                request_id=request.request_id,
-                instance_id=instance_id,
-                strategy=RoutingStrategy.LOAD_BALANCED,
-                cached_block_id=None,
-                cache_hit=False,
-            )
+
+            # Check if cached instance is healthy
+            if self.telemetry_broker:
+                telemetry = self.telemetry_broker.get_instance_telemetry(instance_id)
+                if telemetry and telemetry.health_status != "healthy":
+                    # Cached instance is degraded/failed, fall through to round-robin
+                    pass
+                else:
+                    return RoutingDecision(
+                        request_id=request.request_id,
+                        instance_id=instance_id,
+                        strategy=RoutingStrategy.CACHE_HIT,
+                        cached_block_id=cached_block_id,
+                        cache_hit=True,
+                    )
+            else:
+                return RoutingDecision(
+                    request_id=request.request_id,
+                    instance_id=instance_id,
+                    strategy=RoutingStrategy.CACHE_HIT,
+                    cached_block_id=cached_block_id,
+                    cache_hit=True,
+                )
+
+        # Round-robin to healthy instances only
+        healthy_instances = []
+        if self.telemetry_broker:
+            healthy_instances = [
+                iid for iid in self.instances
+                if self.telemetry_broker.get_instance_telemetry(iid) is None
+                or self.telemetry_broker.get_instance_telemetry(iid).health_status == "healthy"
+            ]
+
+        # Fall back to all instances if none are healthy
+        available = healthy_instances if healthy_instances else self.instances
+        instance_id = available[self.round_robin_index % len(available)]
+        self.round_robin_index += 1
+
+        return RoutingDecision(
+            request_id=request.request_id,
+            instance_id=instance_id,
+            strategy=RoutingStrategy.LOAD_BALANCED,
+            cached_block_id=None,
+            cache_hit=False,
+        )
 
 
 class StatelessRouter:
@@ -189,6 +218,7 @@ class EventDrivenSimulation:
             self.router = SimpleRouter(
                 self.state_machine,
                 list(self.instances.keys()),
+                telemetry_broker=self.telemetry_broker,
             )
         else:
             self.router = StatelessRouter(list(self.instances.keys()))
@@ -308,6 +338,27 @@ class EventDrivenSimulation:
                             reason="request_triggered",
                         )
                         self.failures_injected += 1
+
+                        # Immediately publish updated telemetry so router sees the failure
+                        from router.router import InstanceTelemetry
+                        telemetry_dict = victim.get_telemetry()
+                        prefill_depth = telemetry_dict["num_prefill_queue"]
+                        decode_depth = telemetry_dict["num_decode_requests"]
+                        updated_telemetry = InstanceTelemetry(
+                            instance_id=victim.instance_id,
+                            epoch=telemetry_dict["epoch"],
+                            hbm_utilization=telemetry_dict["hbm_utilization"],
+                            queue_depth=prefill_depth + decode_depth,
+                            num_cached_blocks=telemetry_dict["num_blocks"],
+                            state_hash=telemetry_dict["state_hash"],
+                            timestamp=self.current_time,
+                            health_status=telemetry_dict["health_status"],
+                            failure_reason=telemetry_dict["failure_reason"],
+                            network_type=telemetry_dict["network_type"],
+                            prefill_queue_depth=prefill_depth,
+                            decode_queue_depth=decode_depth,
+                        )
+                        self.telemetry_broker.publish_telemetry(updated_telemetry)
 
                         # P2P Recovery: initiate transfers for blocks on failed GPU
                         if self.enable_p2p_recovery:

@@ -246,6 +246,24 @@ async def simulate(
         metrics_stateless = sim_stateless.get_metrics_summary()
         metrics_stateful = sim_stateful.get_metrics_summary()
 
+        # Include GPU metrics in final results for frontend to display
+        metrics_stateless["gpus"] = extract_gpu_metrics(sim_stateless)
+        metrics_stateful["gpus"] = extract_gpu_metrics(sim_stateful)
+        metrics_stateless["requests"] = {
+            "generated": len(sim_stateless.request_metrics),
+            "completed": sum(
+                1 for m in sim_stateless.request_metrics.values()
+                if m.decode_complete_time is not None
+            ),
+        }
+        metrics_stateful["requests"] = {
+            "generated": len(sim_stateful.request_metrics),
+            "completed": sum(
+                1 for m in sim_stateful.request_metrics.values()
+                if m.decode_complete_time is not None
+            ),
+        }
+
         final_data = {
             "type": "complete",
             "stateless": metrics_stateless,

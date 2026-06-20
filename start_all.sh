@@ -9,14 +9,14 @@ cd "$(dirname "$0")"
 
 echo "🚀 Starting LLM Router (Backend + Frontend)..."
 echo ""
-echo "Backend API: http://localhost:8000"
+echo "Backend API: http://localhost:8001"
 echo "Frontend UI: http://localhost:5173"
 echo ""
 echo "Press Ctrl+C to stop both services"
 echo ""
 
 # Start backend in background
-./start_backend.sh &
+env PORT=8001 ./start_backend.sh &
 BACKEND_PID=$!
 
 # Wait a bit for backend to start
