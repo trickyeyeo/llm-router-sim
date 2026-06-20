@@ -98,7 +98,7 @@ function runSingleSimulation(
     network_type: networkType,
   });
 
-  const eventSource = new EventSource(`http://localhost:8000/simulate?${query}`);
+  const eventSource = new EventSource(`/simulate?${query}`);
 
   eventSource.onmessage = (event) => {
     try {
@@ -165,7 +165,7 @@ function runBaselineAndWithP2P(
       enable_p2p_recovery: 'false',
     });
 
-    const eventSource = new EventSource(`http://localhost:8000/simulate?${query}`);
+    const eventSource = new EventSource(`/simulate?${query}`);
 
     eventSource.onmessage = (event) => {
       try {
@@ -190,7 +190,7 @@ function runBaselineAndWithP2P(
       enable_p2p_recovery: 'true',
     });
 
-    const eventSource = new EventSource(`http://localhost:8000/simulate?${query}`);
+    const eventSource = new EventSource(`/simulate?${query}`);
 
     eventSource.onmessage = (event) => {
       try {

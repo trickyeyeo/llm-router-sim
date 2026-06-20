@@ -7,11 +7,8 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0',
     proxy: {
-      '/api': {
-        target: 'http://backend:8000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      }
+      '/simulate': 'http://localhost:8001',
+      '/health': 'http://localhost:8001',
     }
   }
 })
