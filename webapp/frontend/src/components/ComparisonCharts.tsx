@@ -17,7 +17,7 @@ export default function ComparisonCharts({
   const leftShort = leftLabel.split('(')[0].trim();
   const rightShort = rightLabel.split('(')[0].trim();
 
-  // Prepare data for charts - use placeholder data for now
+  // Placeholder TTFT data - would need per-turn tracking from simulation
   const chartData = [
     { turn: 1, left: 683, right: 683 },
     { turn: 2, left: 376, right: 205 },
@@ -26,6 +26,7 @@ export default function ComparisonCharts({
     { turn: 5, left: 478, right: 410 },
   ];
 
+  // Placeholder HBM utilization data - would need time-series tracking
   const utilizationData = [
     { time: 0, left: 10, right: 15 },
     { time: 10, left: 55, right: 35 },
@@ -34,9 +35,12 @@ export default function ComparisonCharts({
     { time: 35, left: 99, right: 63 },
   ];
 
+  // Use actual throughput from metrics
+  const leftTokensPerSec = _metrics?.left?.throughput_tokens_per_sec || 0;
+  const rightTokensPerSec = _metrics?.right?.throughput_tokens_per_sec || 0;
   const throughputData = [
-    { benchmark: leftShort, value: 2100 },
-    { benchmark: rightShort, value: 2398 },
+    { benchmark: leftShort, value: leftTokensPerSec },
+    { benchmark: rightShort, value: rightTokensPerSec },
   ];
 
   return (

@@ -3,7 +3,6 @@ import ParameterPanel from './components/ParameterPanel';
 import ProgressIndicator from './components/ProgressIndicator';
 import GPUCards from './components/GPUCards';
 import KeyMetrics from './components/KeyMetrics';
-import ComparisonCharts from './components/ComparisonCharts';
 import ExpertAccordion from './components/ExpertAccordion';
 import { useSimulation, type SimulationParams } from './hooks/useSimulation';
 import { downloadPDF } from './utils/pdfExport';
@@ -73,16 +72,6 @@ export default function App() {
             {/* Key Metrics */}
             {simState.final_metrics && (
               <KeyMetrics
-                metrics={simState.final_metrics}
-                leftLabel={simState.left?.label}
-                rightLabel={simState.right?.label}
-                comparisonMode={simState.comparisonMode}
-              />
-            )}
-
-            {/* Comparison Charts */}
-            {simState.final_metrics && (
-              <ComparisonCharts
                 metrics={simState.final_metrics}
                 leftLabel={simState.left?.label}
                 rightLabel={simState.right?.label}
