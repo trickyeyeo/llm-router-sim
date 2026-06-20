@@ -61,6 +61,13 @@ def run_quick_test():
         print(f"\nE2E latency (ms): avg={e2e['avg']:.1f}, p50={e2e['p50']:.1f}, p99={e2e['p99']:.1f}")
         print(f"TTFT (ms): avg={ttft['avg']:.1f}, p50={ttft['p50']:.1f}, p99={ttft['p99']:.1f}")
 
+        # Routing strategy breakdown
+        if "routing_strategies" in metrics and metrics["routing_strategies"]:
+            print(f"\nRouting strategy breakdown:")
+            for strategy, count in metrics["routing_strategies"].items():
+                pct = (count / len(sim.routing_decisions)) * 100
+                print(f"  {strategy}: {count} ({pct:.1f}%)")
+
 
 if __name__ == "__main__":
     run_quick_test()

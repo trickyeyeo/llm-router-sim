@@ -11,6 +11,13 @@ from enum import Enum
 import heapq
 
 from router.prefix_state_machine import PrefixStateMachine, Block
+from router.router import (
+    LoadAwareRouter,
+    LoadAwareTelemetryBroker,
+    InstanceTelemetry,
+    RoutingDecision as RouterRoutingDecision,
+    RoutingStrategy,
+)
 from simulator.gpu_backend import GPUInstance, GPUInstanceConfig
 from simulator.workload import Request, WorkloadGenerator
 
@@ -40,14 +47,8 @@ class Event:
         return self.sequence < other.sequence
 
 
-@dataclass
-class RoutingDecision:
-    """Result of routing a request."""
-
-    request_id: str
-    instance_id: str
-    cached_block_id: Optional[str] = None  # If prefix hit, which block to reuse
-    cache_hit: bool = False
+# RoutingDecision imported from router.router
+RoutingDecision = RouterRoutingDecision
 
 
 @dataclass
@@ -76,47 +77,31 @@ class RequestMetrics:
         return self.decode_complete_time - self.arrival_time
 
 
-class SimpleRouter:
+# Router implementations moved to router/router.py
+# See LoadAwareRouter (with telemetry) and StatelessRouter (baseline)
+
+
+class StatelessRouter:
     """
-    Simple router: sticky to cached instance, round-robin fallback.
+    Stateless router: pure round-robin, ignores prefix cache.
+    (Baseline: no awareness of KV cache state)
     """
 
-    def __init__(self, state_machine: PrefixStateMachine, instances: List[str]):
-        self.state_machine = state_machine
+    def __init__(self, instances: List[str]):
         self.instances = instances
         self.round_robin_index = 0
 
     def route(self, request: Request) -> RoutingDecision:
-        """
-        Route a request.
-
-        Query state machine for prefix cache hit.
-        If hit, route to that instance.
-        Otherwise, round-robin.
-        """
-        # Query prefix cache
-        cached_block_id = self.state_machine.query_prefix_chain(request.prefix_hashes)
-
-        if cached_block_id:
-            # Cache hit: route to instance holding this block
-            block = self.state_machine.get_block(cached_block_id)
-            instance_id = block.instance_id
-            return RoutingDecision(
-                request_id=request.request_id,
-                instance_id=instance_id,
-                cached_block_id=cached_block_id,
-                cache_hit=True,
-            )
-        else:
-            # Cache miss: round-robin
-            instance_id = self.instances[self.round_robin_index % len(self.instances)]
-            self.round_robin_index += 1
-            return RoutingDecision(
-                request_id=request.request_id,
-                instance_id=instance_id,
-                cached_block_id=None,
-                cache_hit=False,
-            )
+        """Route via round-robin, ignoring cache."""
+        instance_id = self.instances[self.round_robin_index % len(self.instances)]
+        self.round_robin_index += 1
+        return RoutingDecision(
+            request_id=request.request_id,
+            instance_id=instance_id,
+            strategy=RoutingStrategy.LOAD_BALANCED,
+            cached_block_id=None,
+            cache_hit=False,
+        )
 
 
 class EventDrivenSimulation:
@@ -131,10 +116,12 @@ class EventDrivenSimulation:
         workload_gen: WorkloadGenerator,
         instances_config: List[GPUInstanceConfig],
         heartbeat_interval_ms: float = 100.0,
+        stateful: bool = True,
     ):
         self.workload_gen = workload_gen
         self.heartbeat_interval_ms = heartbeat_interval_ms
         self.current_time = 0.0
+        self.stateful = stateful
 
         # State machine
         self.state_machine = PrefixStateMachine()
@@ -144,8 +131,18 @@ class EventDrivenSimulation:
             cfg.instance_id: GPUInstance(cfg) for cfg in instances_config
         }
 
-        # Router
-        self.router = SimpleRouter(self.state_machine, list(self.instances.keys()))
+        # Telemetry broker for NATS-style updates
+        self.telemetry_broker = LoadAwareTelemetryBroker(overload_threshold=0.8)
+
+        # Router: load-aware (prefix-aware + telemetry) or stateless (round-robin only)
+        if stateful:
+            self.router = LoadAwareRouter(
+                self.state_machine,
+                list(self.instances.keys()),
+                self.telemetry_broker,
+            )
+        else:
+            self.router = StatelessRouter(list(self.instances.keys()))
 
         # Metrics
         self.request_metrics: Dict[str, RequestMetrics] = {}
@@ -446,14 +443,28 @@ class EventDrivenSimulation:
         del self.active_requests[request_id]
 
     def _send_heartbeats(self) -> None:
-        """Send periodic heartbeats from instances to state machine."""
+        """Send periodic heartbeats from instances to state machine and telemetry broker."""
         for instance in self.instances.values():
-            telemetry = instance.get_telemetry()
+            telemetry_dict = instance.get_telemetry()
+
+            # Update state machine for reconciliation
             self.state_machine.update_instance_state(
                 instance.instance_id,
-                telemetry["epoch"],
-                telemetry["state_hash"],
+                telemetry_dict["epoch"],
+                telemetry_dict["state_hash"],
             )
+
+            # Publish to telemetry broker for routing decisions
+            telemetry = InstanceTelemetry(
+                instance_id=instance.instance_id,
+                epoch=telemetry_dict["epoch"],
+                hbm_utilization=telemetry_dict["hbm_utilization"],
+                queue_depth=telemetry_dict["num_decode_requests"],
+                num_cached_blocks=telemetry_dict["num_blocks"],
+                state_hash=telemetry_dict["state_hash"],
+                timestamp=self.current_time,
+            )
+            self.telemetry_broker.publish_telemetry(telemetry)
 
     def get_metrics_summary(self) -> Dict:
         """Get aggregate metrics from simulation."""
@@ -468,11 +479,20 @@ class EventDrivenSimulation:
 
         cache_hits = sum(1 for d in self.routing_decisions if d.cache_hit)
 
+        # Count routing strategies
+        from router.router import RoutingStrategy
+        strategy_counts = {}
+        for d in self.routing_decisions:
+            strategy = getattr(d, "strategy", None)
+            if strategy:
+                strategy_counts[strategy.value] = strategy_counts.get(strategy.value, 0) + 1
+
         if not latencies:
             return {
                 "num_requests": len(self.request_metrics),
                 "completed_requests": 0,
                 "cache_hit_rate": 0.0,
+                "routing_strategies": strategy_counts,
             }
 
         latencies.sort()
@@ -484,6 +504,7 @@ class EventDrivenSimulation:
             "cache_hit_rate": cache_hits / len(self.routing_decisions)
             if self.routing_decisions
             else 0.0,
+            "routing_strategies": strategy_counts,
             "e2e_latency_ms": {
                 "min": min(latencies),
                 "max": max(latencies),
