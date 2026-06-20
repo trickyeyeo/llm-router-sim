@@ -14,12 +14,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code
-COPY webapp/main.py .
-COPY simulator ../simulator
+# Copy backend code and modules to app root
+COPY webapp/main.py ./main.py
+COPY simulator ./simulator
+COPY router ./router
 
 # Copy built frontend
 COPY --from=frontend-builder /app/frontend/dist ./dist
+
+# Set Python path for imports
+ENV PYTHONPATH=/app
 
 # Serve static files from backend
 RUN pip install --no-cache-dir fastapi-static-files

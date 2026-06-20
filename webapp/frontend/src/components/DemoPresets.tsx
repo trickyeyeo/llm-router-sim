@@ -22,8 +22,8 @@ const DEMO_PRESETS: DemoConfig[] = [
     name: 'Caching Affinity',
     description: 'Shows how scoring-based routing promotes cache hits and reuse for capacity improvement',
     comparisonMode: 'stateless_vs_stateful',
-    expectedResults: 'Stateful: ~99% cache hit rate on GPU0 (owns system prompt), ~2.8x throughput vs stateless. Stateless: ~0% hits, balanced load across both GPUs via round-robin. Key: cache concentration achieves 2.5x+ capacity.',
-    whyItMatters: 'Demonstrates prefix-affinity routing: routes to cache owner rather than spreading load randomly, preventing thundering herd queues while maximizing cache reuse.',
+    expectedResults: 'Stateful: ~99% cache hit rate, all 115 blocks on GPU0 (cache concentration). Stateless: ~0% hits, ~92 blocks on each GPU (balanced). TTFT: stateful 282ms vs stateless 396ms (29% faster). Throughput: ~2.0 req/sec both (same #requests in 35s, cache saves latency not end-to-end time). Key: cache concentration is the routing feature.',
+    whyItMatters: 'Demonstrates prefix-affinity routing: routes to cache owner rather than spreading load randomly, concentrating cache for maximum reuse efficiency.',
     params: {
       num_sessions: 50,
       turns_per_session: 3,
@@ -35,8 +35,8 @@ const DEMO_PRESETS: DemoConfig[] = [
     name: 'Graceful Degradation',
     description: 'System recovers from GPU failures via P2P KV cache transfers, minimizing latency impact',
     comparisonMode: 'stateful_baseline_vs_with_p2p',
-    expectedResults: 'Baseline (20% failures, no recovery): avg TTFT ~650ms, p99 TTFT ~450ms. With P2P recovery: avg TTFT ~570ms, p99 TTFT ~380ms. RDMA avg transfer ~12ms. P2P keeps failure cost <15% latency spike vs full re-route cascades.',
-    whyItMatters: 'Demonstrates resilience: P2P recovery limits failure cost to latency spikes, not throughput collapse. RDMA transfers (pinned blocks direct, LRU blocks with fallback to TCP if eviction fails) keep overhead minimal.',
+    expectedResults: 'Baseline (20% failures, no P2P): 40 requests at 1.14 req/sec, avg TTFT 177ms, p99 TTFT 341ms. With P2P recovery: 40 requests at 1.14 req/sec, avg TTFT 177ms, p99 TTFT 341ms. Note: P2P recovery feature is under development (transfers not yet initiated on failures).',
+    whyItMatters: 'Demonstrates resilience strategy: when GPU fails, requests route to healthy instances. Full P2P recovery (transferring KV blocks via RDMA to avoid re-prefilling from scratch) will minimize latency impact vs cascading failures.',
     params: {
       num_sessions: 20,
       turns_per_session: 2,
