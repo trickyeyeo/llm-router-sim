@@ -31,11 +31,6 @@ export default function ExpertAccordion({
     return metricsObj.requests.completed || 0;
   };
 
-  const getAvgTTFT = (metricsObj: any) => {
-    if (!metricsObj?.ttft) return 0;
-    return Math.round(metricsObj.ttft.avg) || 0;
-  };
-
   const renderCachingAffinityFindings = () => {
     const statelessMetrics = metrics?.left;
     const statefulMetrics = metrics?.right;
@@ -77,12 +72,6 @@ export default function ExpertAccordion({
   const renderGracefulDegradationFindings = () => {
     const baselineMetrics = metrics?.left;
     const recoveryMetrics = metrics?.right;
-
-    const baselineTTFT = getAvgTTFT(baselineMetrics);
-    const recoveryTTFT = getAvgTTFT(recoveryMetrics);
-    const ttftIncrease = baselineTTFT > 0
-      ? (((recoveryTTFT - baselineTTFT) / baselineTTFT) * 100).toFixed(1)
-      : 'N/A';
 
     const baselineCompleted = getThroughput(baselineMetrics);
     const recoveryCompleted = getThroughput(recoveryMetrics);
