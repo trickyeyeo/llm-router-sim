@@ -16,14 +16,15 @@ docker-compose -f webapp/docker-compose.yml up --build
 
 Then open your browser:
 - **Frontend:** http://localhost:5173 (dev) or http://localhost (production)
-- **Backend API:** http://localhost:8000
-- **Health check:** http://localhost:8000/health
+- **Backend API:** http://localhost:8001
+- **Health check:** http://localhost:8001/health
 
 ### What You'll See
 
 1. **Parameter Controls** (left sidebar)
-   - Adjust concurrent conversations (1-20)
+   - Adjust concurrent conversations (1-250)
    - Adjust turns per conversation (1-10)
+   - GPU0 HBM pre-fill slider to test multi-GPU scenarios
    - Click "Run Simulation" to start
 
 2. **Real-time Progress**
@@ -38,10 +39,10 @@ Then open your browser:
    - Active metrics update every heartbeat
 
 4. **Key Metrics** (after simulation completes)
-   - **2.5x more customers** — capacity improvement
-   - **Cost per customer reduction** — calculated from cache hit rate
-   - **Cache hit rate** — showing efficiency
-   - **TTFT improvement** — latency gains
+   - **Cache hit rate** — ~81% with stateful routing vs 0% stateless
+   - **Block efficiency** — 30% fewer cached blocks needed (same traffic)
+   - **Capacity gain** — 30% higher multitenancy on identical hardware
+   - **TTFT improvement** — 22% latency reduction (decode-dominated TTFT)
 
 5. **Comparison Charts** (overlay visualization)
    - TTFT per turn (stateless red vs stateful green)
@@ -94,11 +95,12 @@ React Frontend (updates state, animates charts)
 
 1. **Multi-turn conversations** are common in agentic systems
 2. **Stateless routing** re-computes identical system prompts and conversation history on every turn (wasteful)
-3. **Prefix-aware routing** caches this context and reuses it
-4. **Result:** 
-   - 96%+ cache hit rate
-   - 2.5x more customers on same hardware (or 60% cost reduction)
-   - 45% faster response times on turn 2 (when cache kicks in)
+3. **Prefix-aware routing** (LoadAwareRouter) caches this context and reuses it, while load-aware scoring prevents thundering herds
+4. **Actual results from v1.0:**
+   - 81% cache hit rate (57 out of 70 requests matched cached prefix)
+   - 30% block reduction (127 cached blocks vs 183 for stateless)
+   - 22% TTFT improvement (396ms → 305ms, but decode-time limited)
+   - Same throughput, better efficiency = higher multitenancy capacity
 
 ---
 

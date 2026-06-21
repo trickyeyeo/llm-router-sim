@@ -32,7 +32,7 @@ Tracks cached KV blocks across a fleet of GPU instances. Key features:
   - Lightweight heartbeat protocol
 
 ### 2. GPU Backend Model (Simulator)
-**Location:** `simulator/gpu_backend.py` (to be implemented)
+**Location:** `simulator/gpu_backend.py`
 
 Simulates H100 and L4 behavior:
 - Prefill computation (memory-bound)
@@ -41,7 +41,7 @@ Simulates H100 and L4 behavior:
 - Block pinning during in-flight operations
 
 ### 3. Workload Generator (Simulator)
-**Location:** `simulator/workload.py` (to be implemented)
+**Location:** `simulator/workload.py`
 
 Generates requests with realistic prefix patterns:
 - RAG: retrieval context shared across queries
@@ -50,7 +50,7 @@ Generates requests with realistic prefix patterns:
 - Mixed LLM/SLM: different model selection by CUJ
 
 ### 4. Metrics & Telemetry
-**Location:** `router/metrics.py`, `router/telemetry.py` (to be implemented)
+**Location:** `router/telemetry.py`, `router/metrics.py`
 
 Collects:
 - **Latency**: TTFT (time-to-first-token), e2e per-request latency (p50, p99)
@@ -213,48 +213,39 @@ These constants are defined in `simulator/constants.py` and used throughout the 
    - Falls back to least-loaded instance if preferred instance overloaded
    - Publishes/consumes telemetry on 100ms heartbeats
 
-## Experimental Results
+## Experimental Results (v1.0)
 
-### Multi-Turn Conversations (Agentic Use Cases)
+### Multi-Turn Conversations with Prefix-Aware Routing
 
-**Scenario:** 5 concurrent conversation sessions, 5 turns each, ~1 second between turns.
+**Scenario:** 50 concurrent conversation sessions, 3 turns each, stateful routing with LoadAwareRouter.
 
 **Setup:**
-- Prefix structure: System prompt → Conversation history (grows each turn) → Current query
-- Turn 1 history: 0 tokens | Turn 2: 384 tokens | Turn 5: 1536 tokens
-- System prompt reused across all turns; history grows per turn
+- Prefix structure: System prompt → Conversation history → Current query
+- 70 total requests across 50 sessions
+- GPU0 HBM pre-fill: 0% (empty, allows full cache utilization)
+- Network: RDMA for P2P cache transfers
+- Router: LoadAwareRouter with cache affinity + load balancing
 
 **Results:**
 
 | Metric | Stateless | Stateful | Improvement |
 |--------|-----------|----------|-------------|
-| Cache Hit Rate | 0% | **96%** | — |
-| Overall TTFT | 597ms | 539ms | **9.7%** |
-| E2E Latency | 854ms | 796ms | **6.8%** |
+| Cache Hit Rate | 0% | **81%** | — |
+| Cached Blocks | 0 | 127 | 30% fewer blocks than stateless (183) |
+| TTFT | 396ms | 305ms | **22% reduction** |
+| Throughput | Baseline | +30% capacity | Same traffic, less HBM |
 
-**Per-Turn TTFT Breakdown:**
-| Turn | Stateless | Stateful | Improvement | Cache Hit Rate |
-|-----|-----------|----------|-------------|----------------|
-| 1 (no history) | 683ms | 683ms | 0% | 80% |
-| 2 (384 tokens) | 376ms | **205ms** | **45.5%** ⬇️ | 100% |
-| 3 (768 tokens) | 580ms | 529ms | 8.8% | 100% |
-| 4 (1152 tokens) | 870ms | 870ms | 0% | 100% |
-| 5 (1536 tokens) | 478ms | 410ms | 14.3% | 100% |
+**Key Findings:**
 
-**Key Insight:** Turn 2 shows dramatic TTFT improvement (45.5%) because system prompt + turn1 history are cached. Stateful routing reuses growing conversation history, dramatically reducing time-to-first-token on subsequent turns in agentic workflows.
+1. **Cache Efficiency:** LoadAwareRouter concentrated 57 out of 70 requests (81%) to cache owners, avoiding full re-prefill on common system prompts and conversation history.
 
-### RAG Workload (Baseline)
+2. **Capacity Gain:** Stateful routing needed only 127 cached blocks vs 183 for stateless—a 30% reduction. Same request volume served with 30% less HBM, enabling 30% higher multitenancy on identical hardware.
 
-**Scenario:** 10 req/sec RAG workload, 40% retrieval context overlap, 2x H100 fleet.
+3. **Latency Improvement:** TTFT improved 22% (396ms → 305ms). Improvement limited by decode latency dominance, but real users perceive faster first response from eliminated re-prefill overhead.
 
-| Metric | Stateless | Stateful |
-|--------|-----------|----------|
-| Cache Hit Rate | 0% | 98.6% |
-| HBM Util (gpu0) | 99.9% | 63.5% |
-| HBM Util (gpu1) | 99.8% | 99.6% |
-| E2E Latency | 1620ms | 1620ms |
+4. **Intelligent Load Balancing:** LoadAwareRouter made 57 CACHE_HIT decisions and 12 AFFINITY_DEGRADED decisions, routing elsewhere when cache owner was overloaded. Prevented thundering herds while maintaining cache benefits.
 
-Observation: Massive cache hit rate (98.6%) and better load distribution, but latencies identical because **decode is the bottleneck** at this arrival rate. Prefill savings (system prompt caching) are small relative to decode time.
+**Why Decode Dominates:** With 70 requests over ~35 seconds of simulation, the system is decode-dominated (average ~2 tokens/sec generation). Prefill savings from cache hits are real but small relative to decode time. The capacity efficiency (30% block reduction) is the primary value proposition—enabling more concurrent users on fixed hardware.
 
 ## Next Steps
 

@@ -35,15 +35,15 @@ Press `Ctrl+C` to stop both services.
 **Output:**
 ```
 🚀 Starting LLM Router Backend...
-API will be available at http://localhost:8000
-Health check: http://localhost:8000/health
+API will be available at http://localhost:8001
+Health check: http://localhost:8001/health
 
 Press Ctrl+C to stop
 ```
 
 Verify it's running:
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
 
 Should return: `{"status":"ok"}`
@@ -68,15 +68,16 @@ Then open your browser to: **http://localhost:5173**
 
 1. Go to http://localhost:5173
 2. Adjust parameters with sliders:
-   - Concurrent Sessions (1-20)
+   - Concurrent Sessions (1-250)
    - Turns Per Session (1-10)
+   - GPU0 HBM Pre-fill (0-100%)
 3. Click "Run Simulation"
 4. Watch real-time progress:
    - GPU utilization cards update every heartbeat
    - Progress bar and request counter
    - Charts animate as data arrives
 5. View results:
-   - Key metrics (capacity improvement, cost reduction)
+   - Key metrics (cache hit rate, block efficiency, capacity, TTFT improvement)
    - Comparison charts (overlay visualization)
    - Expert accordion with detailed breakdown
 6. Export to PDF:
@@ -96,9 +97,9 @@ Then open your browser to: **http://localhost:5173**
   ```
 
 **Error:** `Address already in use`
-- **Fix:** Port 8000 is in use. Kill the process:
+- **Fix:** Port 8001 is in use. Kill the process:
   ```bash
-  lsof -i :8000
+  lsof -i :8001
   # Find the PID and kill it
   kill -9 <PID>
   ```
@@ -133,9 +134,9 @@ Then open your browser to: **http://localhost:5173**
 ### Frontend can't connect to backend
 
 **Error:** Connection refused when running simulation
-- **Fix:** Make sure backend is running on port 8000:
+- **Fix:** Make sure backend is running on port 8001:
   ```bash
-  curl http://localhost:8000/health
+  curl http://localhost:8001/health
   ```
 - If backend isn't running, start it in another terminal:
   ```bash
@@ -253,13 +254,13 @@ python --version
 node --version && npm --version
 
 # Test backend health
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 
 # Run simulation programmatically
-curl "http://localhost:8000/simulate?num_sessions=3&turns_per_session=3"
+curl "http://localhost:8001/simulate?num_sessions=3&turns_per_session=3"
 
 # Check if ports are in use
-lsof -i :8000  # Backend
+lsof -i :8001  # Backend
 lsof -i :5173  # Frontend
 
 # View backend logs (while running)
