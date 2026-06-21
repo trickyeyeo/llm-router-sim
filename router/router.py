@@ -157,7 +157,7 @@ class LoadAwareRouter:
         self, matched_tokens: int, total_request_tokens: int, prefill_throughput: float
     ) -> Tuple[float, float]:
         """
-        Calculate cache value as: (matched_tokens / total_tokens) * time_saved.
+        Calculate cache value as: (matched_tokens / total_tokens) * w_cache.
 
         Args:
             matched_tokens: Number of tokens from cache hit
@@ -170,18 +170,15 @@ class LoadAwareRouter:
         if total_request_tokens == 0:
             return 0.0, 0.0
 
-        # Tokens that still need to be prefilled
-        tokens_to_prefill = total_request_tokens - matched_tokens
-
-        # Time saved = time that would be spent prefilling matched tokens
+        # Time saved = time that would be spent prefilling matched tokens (for info only)
         if prefill_throughput > 0:
             prefill_time_saved_ms = (matched_tokens / prefill_throughput) * 1000.0
         else:
             prefill_time_saved_ms = 0.0
 
-        # Cache value: proportion of tokens matched * time saved
+        # Cache value: proportion of tokens matched (dimensionless score, 0-1 range)
         cache_ratio = matched_tokens / total_request_tokens if total_request_tokens > 0 else 0.0
-        cache_value = cache_ratio * prefill_time_saved_ms * self.weights.w_cache
+        cache_value = cache_ratio * self.weights.w_cache
 
         return cache_value, prefill_time_saved_ms
 
@@ -433,14 +430,14 @@ class LoadAwareRouter:
         # cache_hit is true ONLY if:
         # 1. There's a cached block AND
         # 2. We're routing to the instance that HAS that cached block
-        if cached_block_id and best_score.matched_tokens > 0:
+        if cached_block_id:
             block = self.state_machine.get_block(cached_block_id)
             if block and block.instance_id == selected_instance:
                 # Actually routing to the instance with cache
                 strategy = RoutingStrategy.CACHE_HIT
                 cache_hit = True
             else:
-                # Cache exists but we're routing elsewhere for load balancing
+                # Cache exists but we're routing elsewhere (instance degraded/overloaded)
                 strategy = RoutingStrategy.AFFINITY_DEGRADED
                 cache_hit = False
                 cached_block_id = None  # Don't report cache hit if not using it
