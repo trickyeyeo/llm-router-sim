@@ -47,6 +47,7 @@ class GPUInstanceConfig:
     hbm_capacity_bytes: int  # Total HBM bytes
     prefill_throughput_tokens_per_sec: float  # Tokens prefilled per second (entire batch)
     decode_latency_per_token_ms: float  # Latency per token during decode (single token generation)
+    kv_cache_bytes_per_token: int  # KV cache bytes per token for this model
     max_batch_size: int = 256  # Max requests in decode batch
 
 

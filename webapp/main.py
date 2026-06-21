@@ -57,6 +57,7 @@ def create_simulation(
     failure_rate: float = 0.0,
     network_type: str = "rdma",
     enable_p2p_recovery: bool = True,
+    hbm_percent: float = 0.0,
 ):
     """Create simulation instance."""
     instances_config = [
@@ -75,6 +76,7 @@ def create_simulation(
         failure_recovery_time_ms=5000.0,
         network_type=network_type,
         enable_p2p_recovery=enable_p2p_recovery,
+        hbm_percent=hbm_percent,
     )
 
 
@@ -114,20 +116,22 @@ async def health():
 
 @app.get("/simulate")
 async def simulate(
-    num_sessions: int = Query(5, ge=1, le=100),
+    num_sessions: int = Query(5, ge=1, le=250),
     turns_per_session: int = Query(5, ge=1, le=10),
     failure_rate: float = Query(0.0, ge=0.0, le=1.0),
     network_type: str = Query("rdma", regex="^(rdma|tcp)$"),
+    hbm_percent: float = Query(0.0, ge=0.0, le=100.0),
     enable_p2p_recovery: bool = Query(True),
 ):
     """
     Run simulations (stateless and stateful) and stream results.
 
     Query params:
-    - num_sessions: number of concurrent conversation sessions (1-100)
+    - num_sessions: number of concurrent conversation sessions (1-250)
     - turns_per_session: number of turns per session (1-10)
     - failure_rate: probability of GPU failure per request (0.0-1.0)
     - network_type: network technology for P2P transfers ("rdma" or "tcp")
+    - hbm_percent: percentage of GPU0 HBM to pre-fill with junk blocks (0-100, default: 0)
     - enable_p2p_recovery: whether to enable P2P recovery for stateful sim (default: True)
 
     Streams SSE events with real-time metrics.
@@ -137,12 +141,14 @@ async def simulate(
         # Create both simulations (Phase 3: pass failure_rate and network_type)
         sim_stateless = create_simulation(
             num_sessions, turns_per_session, stateful=False,
-            failure_rate=failure_rate, network_type=network_type
+            failure_rate=failure_rate, network_type=network_type,
+            hbm_percent=hbm_percent
         )
         sim_stateful = create_simulation(
             num_sessions, turns_per_session, stateful=True,
             failure_rate=failure_rate, network_type=network_type,
-            enable_p2p_recovery=enable_p2p_recovery
+            enable_p2p_recovery=enable_p2p_recovery,
+            hbm_percent=hbm_percent
         )
 
         # Simulation parameters

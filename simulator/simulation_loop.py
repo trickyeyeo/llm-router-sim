@@ -81,71 +81,6 @@ class RequestMetrics:
 
 
 # Simple stateful router: cache-aware but no load telemetry
-class SimpleRouter:
-    """
-    Simple stateful router: sticky to cached instance, round-robin fallback.
-    (Uses cache affinity and checks health status via telemetry broker)
-    """
-
-    def __init__(self, state_machine: PrefixStateMachine, instances: List[str], telemetry_broker=None):
-        self.state_machine = state_machine
-        self.instances = instances
-        self.telemetry_broker = telemetry_broker
-        self.round_robin_index = 0
-
-    def route(self, request: Request) -> RoutingDecision:
-        """Route with cache affinity only."""
-        cached_block_id = self.state_machine.query_prefix_chain(request.prefix_hashes)
-        if cached_block_id:
-            block = self.state_machine.get_block(cached_block_id)
-            instance_id = block.instance_id
-
-            # Check if cached instance is healthy
-            if self.telemetry_broker:
-                telemetry = self.telemetry_broker.get_instance_telemetry(instance_id)
-                if telemetry and telemetry.health_status != "healthy":
-                    # Cached instance is degraded/failed, fall through to round-robin
-                    pass
-                else:
-                    return RoutingDecision(
-                        request_id=request.request_id,
-                        instance_id=instance_id,
-                        strategy=RoutingStrategy.CACHE_HIT,
-                        cached_block_id=cached_block_id,
-                        cache_hit=True,
-                    )
-            else:
-                return RoutingDecision(
-                    request_id=request.request_id,
-                    instance_id=instance_id,
-                    strategy=RoutingStrategy.CACHE_HIT,
-                    cached_block_id=cached_block_id,
-                    cache_hit=True,
-                )
-
-        # Round-robin to healthy instances only
-        healthy_instances = []
-        if self.telemetry_broker:
-            healthy_instances = [
-                iid for iid in self.instances
-                if self.telemetry_broker.get_instance_telemetry(iid) is None
-                or self.telemetry_broker.get_instance_telemetry(iid).health_status == "healthy"
-            ]
-
-        # Fall back to all instances if none are healthy
-        available = healthy_instances if healthy_instances else self.instances
-        instance_id = available[self.round_robin_index % len(available)]
-        self.round_robin_index += 1
-
-        return RoutingDecision(
-            request_id=request.request_id,
-            instance_id=instance_id,
-            strategy=RoutingStrategy.LOAD_BALANCED,
-            cached_block_id=None,
-            cache_hit=False,
-        )
-
-
 class StatelessRouter:
     """
     Stateless router: pure round-robin, ignores prefix cache.
@@ -186,6 +121,7 @@ class EventDrivenSimulation:
         failure_recovery_time_ms: float = 5000.0,
         network_type: str = "rdma",
         enable_p2p_recovery: bool = True,
+        hbm_percent: float = 0.0,
     ):
         self.workload_gen = workload_gen
         self.heartbeat_interval_ms = heartbeat_interval_ms
@@ -197,6 +133,7 @@ class EventDrivenSimulation:
         self.failure_recovery_time_ms = failure_recovery_time_ms
         self.network_type = network_type
         self.enable_p2p_recovery = enable_p2p_recovery
+        self.hbm_percent = hbm_percent
 
         # State machine
         self.state_machine = PrefixStateMachine()
@@ -210,12 +147,17 @@ class EventDrivenSimulation:
         for instance in self.instances.values():
             instance.network_type = network_type
 
+        # Pre-fill GPU0 HBM with junk blocks if hbm_percent > 0
+        if hbm_percent > 0 and "gpu0" in self.instances:
+            self._prefill_gpu0_hbm(hbm_percent)
+
         # Telemetry broker for NATS-style updates
         self.telemetry_broker = LoadAwareTelemetryBroker(overload_threshold=0.8)
 
-        # Router: stateful (cache-aware) or stateless (round-robin only)
+        # Router: stateful (load-aware scoring) or stateless (round-robin)
         if stateful:
-            self.router = SimpleRouter(
+            from router.router import LoadAwareRouter
+            self.router = LoadAwareRouter(
                 self.state_machine,
                 list(self.instances.keys()),
                 telemetry_broker=self.telemetry_broker,
@@ -245,6 +187,35 @@ class EventDrivenSimulation:
         self.event_queue: List[Event] = []
         self.next_heartbeat_time = heartbeat_interval_ms
         self._pending_arrivals: Dict[str, Request] = {}  # Pregenerated requests for bootstrap
+
+    def _prefill_gpu0_hbm(self, hbm_percent: float) -> None:
+        """Pre-fill GPU0's HBM with junk blocks that will never match incoming prefixes."""
+        from router.prefix_state_machine import Block
+
+        gpu0 = self.instances.get("gpu0")
+        if not gpu0:
+            return
+
+        hbm_bytes = gpu0.config.hbm_capacity_bytes
+        target_bytes = (hbm_percent / 100.0) * hbm_bytes
+        block_size_bytes = gpu0.config.kv_cache_bytes_per_token * 512  # Assume 512 tokens per block
+
+        blocks_needed = int(target_bytes / block_size_bytes)
+        for i in range(blocks_needed):
+            junk_hash = f"junk_prefix_{i}_never_matches"
+            junk_block_id = f"junk_block_{i}"
+
+            block = Block(
+                block_id=junk_block_id,
+                instance_id="gpu0",
+                parent_hash=None,
+                own_hash=junk_hash,
+                prefix_tokens=512,
+                kv_cache_bytes=block_size_bytes,
+                model_id=gpu0.config.model_id,
+            )
+            self.state_machine.add_block(block)
+            gpu0.add_block(junk_block_id, block_size_bytes, current_time=0.0)
 
     def run(self, simulation_time_ms: float) -> None:
         """Run simulation until simulation_time_ms."""

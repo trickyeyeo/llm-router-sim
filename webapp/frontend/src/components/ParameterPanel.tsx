@@ -12,6 +12,7 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
   const [turns, setTurns] = useState(5);
   const [failureRate, setFailureRate] = useState(0);
   const [networkType, setNetworkType] = useState('rdma');
+  const [hbmPercent, setHbmPercent] = useState(0);
   const [demoActive, setDemoActive] = useState(false);
 
   const handleRun = () => {
@@ -20,6 +21,7 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
       turns_per_session: turns,
       failure_rate: failureRate,
       network_type: networkType,
+      hbm_percent: hbmPercent,
       comparisonMode: 'stateless_vs_stateful',
     });
   };
@@ -62,6 +64,7 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
                 setTurns(5);
                 setFailureRate(0);
                 setNetworkType('rdma');
+                setHbmPercent(0);
               }}
               disabled={disabled}
               className="w-full text-sm px-3 py-2 bg-slate-700/50 hover:bg-slate-700 rounded text-slate-300 transition"
@@ -81,7 +84,7 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
               <input
                 type="range"
                 min="1"
-                max="20"
+                max="250"
                 value={sessions}
                 onChange={(e) => setSessions(Number(e.target.value))}
                 disabled={disabled}
@@ -89,7 +92,7 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
               />
               <div className="flex justify-between text-xs text-slate-500 mt-1">
                 <span>1</span>
-                <span>20</span>
+                <span>250</span>
               </div>
             </div>
 
@@ -153,6 +156,28 @@ export default function ParameterPanel({ onRun, disabled }: ParameterPanelProps)
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* GPU0 Pre-fill HBM */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-300 mb-2">
+                GPU0 Pre-fill HBM: <span className="text-purple-400">{hbmPercent}%</span>
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={hbmPercent}
+                onChange={(e) => setHbmPercent(Number(e.target.value))}
+                disabled={disabled}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              />
+              <div className="flex justify-between text-xs text-slate-500 mt-1">
+                <span>0%</span>
+                <span>100%</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">Pre-fill GPU0 with junk KV cache to force traffic to GPU1</p>
             </div>
 
             {/* Total Requests Estimate */}

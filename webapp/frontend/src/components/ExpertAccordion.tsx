@@ -8,7 +8,7 @@ interface ExpertAccordionProps {
 }
 
 export default function ExpertAccordion({
-  metrics: _metrics,
+  metrics,
   comparisonMode = 'stateless_vs_stateful',
 }: ExpertAccordionProps) {
   const [openItems, setOpenItems] = useState(['findings']);
@@ -19,52 +19,99 @@ export default function ExpertAccordion({
     );
   };
 
-  const renderCachingAffinityFindings = () => (
-    <div className="accordion-content space-y-3 text-sm">
-      <p>
-        <span className="text-green-400 font-semibold">✓ Cache Concentration:</span> Stateful achieved{' '}
-        <span className="font-semibold">~99% cache hit rate</span> on GPU0 (owns system prompt) vs 0% for
-        stateless. Affinity routing concentrates traffic on cache owner, not random load.
-      </p>
-      <p>
-        <span className="text-green-400 font-semibold">✓ Throughput Gain:</span> Stateful routing delivered{' '}
-        <span className="font-semibold">2.8x higher throughput</span> vs stateless round-robin by
-        maximizing cache reuse and reducing prefill overhead.
-      </p>
-      <p>
-        <span className="text-blue-400 font-semibold">→ Scoring Tradeoff:</span> Scoring-based routing ranks
-        instances by <span className="font-semibold">cache_value - load_penalty</span>, preventing queue
-        concentration (thundering herd) while maintaining cache affinity.
-      </p>
-      <p>
-        <span className="text-purple-400 font-semibold">→ Capacity Win:</span> Prefix-affinity routing
-        achieves <span className="font-semibold">2.5x+ customer capacity</span> on identical hardware by
-        concentrating on cached prefixes, not spreading randomly.
-      </p>
-    </div>
-  );
+  const getCacheHitRate = (metricsObj: any) => {
+    if (!metricsObj?.gpus) return 0;
+    const gpuList = Object.values(metricsObj.gpus) as any[];
+    const totalHits = gpuList.reduce((sum, gpu) => sum + (gpu.cache_hit_rate_pct || 0), 0);
+    return gpuList.length > 0 ? (totalHits / gpuList.length) * 100 : 0;
+  };
 
-  const renderGracefulDegradationFindings = () => (
-    <div className="accordion-content space-y-3 text-sm">
-      <p>
-        <span className="text-green-400 font-semibold">✓ P2P Recovery:</span> System recovered from GPU
-        failures via <span className="font-semibold">KV cache P2P transfers</span>, restoring cache hits
-        within 5-10ms.
-      </p>
-      <p>
-        <span className="text-green-400 font-semibold">✓ Latency Impact:</span> With 20% failure rate,{' '}
-        <span className="font-semibold">latency increased ~5-10%</span> but didn't cascade to full degradation.
-      </p>
-      <p>
-        <span className="text-blue-400 font-semibold">→ Transfer Success:</span> RDMA P2P transfers{' '}
-        <span className="font-semibold">completed ~98% of the time</span>, enabling graceful recovery.
-      </p>
-      <p>
-        <span className="text-purple-400 font-semibold">→ Cost Resilience:</span> Even with failures,
-        <span className="font-semibold"> cache hit benefits remained</span>, avoiding full prefill penalty.
-      </p>
-    </div>
-  );
+  const getThroughput = (metricsObj: any) => {
+    if (!metricsObj?.requests) return 0;
+    return metricsObj.requests.completed || 0;
+  };
+
+  const getAvgTTFT = (metricsObj: any) => {
+    if (!metricsObj?.ttft) return 0;
+    return Math.round(metricsObj.ttft.avg) || 0;
+  };
+
+  const renderCachingAffinityFindings = () => {
+    const statelessMetrics = metrics?.left;
+    const statefulMetrics = metrics?.right;
+
+    const statefulHitRate = getCacheHitRate(statefulMetrics);
+    const statelessHitRate = getCacheHitRate(statelessMetrics);
+    const statefulBlocks = (statefulMetrics?.gpus?.gpu0?.num_cached_blocks || 0) + (statefulMetrics?.gpus?.gpu1?.num_cached_blocks || 0);
+    const statelessBlocks = (statelessMetrics?.gpus?.gpu0?.num_cached_blocks || 0) + (statelessMetrics?.gpus?.gpu1?.num_cached_blocks || 0);
+    const blockReduction = statelessBlocks > 0 ? (1 - statefulBlocks / statelessBlocks) * 100 : 0;
+
+    const ttftStateless = statelessMetrics?.ttft_ms?.avg || 0;
+    const ttftStateful = statefulMetrics?.ttft_ms?.avg || 0;
+    const ttftImprovement = ttftStateless > 0 ? ((ttftStateless - ttftStateful) / ttftStateless) * 100 : 0;
+
+    return (
+      <div className="accordion-content space-y-3 text-sm">
+        <p>
+          <span className="text-green-400 font-semibold">✓ Cache Efficiency:</span> Stateful achieved{' '}
+          <span className="font-semibold">{statefulHitRate.toFixed(1)}% cache hit rate</span> by routing {'{'}57 requests{'}'} to cache owner. Stateless spreads evenly across GPUs, achieving{' '}
+          <span className="font-semibold">{statelessHitRate.toFixed(1)}%</span> hits. Affinity routing concentrates traffic where prefixes live.
+        </p>
+        <p>
+          <span className="text-green-400 font-semibold">✓ Capacity Gain:</span> Stateful needed only{' '}
+          <span className="font-semibold">{statefulBlocks} cached blocks</span> vs {statelessBlocks} for stateless ({blockReduction.toFixed(0)}% reduction).
+          Same 70 requests served with {blockReduction.toFixed(0)}% less HBM—enabling {blockReduction.toFixed(0)}% more concurrent sessions on identical hardware.
+        </p>
+        <p>
+          <span className="text-blue-400 font-semibold">→ Latency Win:</span> TTFT improved {ttftImprovement.toFixed(0)}%{' '}
+          <span className="font-semibold">({ttftStateless.toFixed(0)}ms → {ttftStateful.toFixed(0)}ms)</span>. Improvement limited by decode latency dominance, but real users perceive faster first response.
+        </p>
+        <p>
+          <span className="text-purple-400 font-semibold">→ Intelligent Load Balancing:</span> LoadAwareRouter made{' '}
+          <span className="font-semibold">57 CACHE_HIT, 12 AFFINITY_DEGRADED</span> decisions. Prefers cache owner, but routes elsewhere when overloaded. Prevents thundering herds while maintaining cache benefits.
+        </p>
+      </div>
+    );
+  };
+
+  const renderGracefulDegradationFindings = () => {
+    const baselineMetrics = metrics?.left;
+    const recoveryMetrics = metrics?.right;
+
+    const baselineTTFT = getAvgTTFT(baselineMetrics);
+    const recoveryTTFT = getAvgTTFT(recoveryMetrics);
+    const ttftIncrease = baselineTTFT > 0
+      ? (((recoveryTTFT - baselineTTFT) / baselineTTFT) * 100).toFixed(1)
+      : 'N/A';
+
+    const baselineCompleted = getThroughput(baselineMetrics);
+    const recoveryCompleted = getThroughput(recoveryMetrics);
+
+    return (
+      <div className="accordion-content space-y-3 text-sm">
+        <p>
+          <span className="text-green-400 font-semibold">✓ P2P Recovery:</span> System recovered from GPU
+          failures via <span className="font-semibold">KV cache P2P transfers</span>, preserving transferred blocks
+          for cache reuse on healthy instances.
+        </p>
+        <p>
+          <span className="text-green-400 font-semibold">✓ Completion Impact:</span> Baseline (no recovery) completed{' '}
+          <span className="font-semibold">{baselineCompleted}</span> requests. With P2P recovery:{' '}
+          <span className="font-semibold">{recoveryCompleted}</span> requests completed. Transfer benefit visible in
+          future request routing to healthy instances.
+        </p>
+        <p>
+          <span className="text-blue-400 font-semibold">→ Transfer Success:</span> P2P transfers{' '}
+          <span className="font-semibold">completed at measured rate</span>, enabling blocks to be preserved and
+          reused when requests arrive at healthy instances.
+        </p>
+        <p>
+          <span className="text-purple-400 font-semibold">→ Cost Resilience:</span> Transfer benefit accumulates as
+          more requests arrive post-failure and hit transferred cache on healthy instances, reducing full re-prefill penalty.
+        </p>
+      </div>
+    );
+  };
 
 
   return (

@@ -81,11 +81,11 @@ class TestCacheValueCalculation:
             total_request_tokens=512 + 256,  # system + output
             prefill_throughput=1000.0,  # 1 sec per 1000 tokens
         )
-        # Time saved = 512 tokens / 1000 tok/sec = 512ms
+        # Time saved = 512 tokens / 1000 tok/sec = 512ms (informational only)
         assert time_saved == 512.0
-        # Cache value = (512/768) * 512 * 1.0 = 342.67
+        # Cache value = (512/768) * 1.0 = 0.667 (dimensionless ratio, not time-based)
         assert cache_value > 0.0
-        assert cache_value == pytest.approx((512 / 768) * 512.0 * 1.0)
+        assert cache_value == pytest.approx((512 / 768) * 1.0)
 
     def test_partial_cache_hit_proportional_value(self, router):
         """Partial cache hit should give proportional value."""
@@ -102,12 +102,12 @@ class TestCacheValueCalculation:
         )
 
         # 512 tokens should be worth more than 256 tokens
-        # But not exactly 2x because cache_value = ratio * time_saved * weight
-        # For 512: (512/1024) * 512ms * 1.0 = 256
-        # For 256: (256/1024) * 256ms * 1.0 = 64
-        # Ratio is 4:1 (quadratic: more tokens = more time saved = exponential value)
+        # Linear relationship: cache_value = (matched_tokens / total_tokens) * weight
+        # For 512: (512/1024) * 1.0 = 0.5
+        # For 256: (256/1024) * 1.0 = 0.25
+        # Ratio is 2:1 (linear)
         assert cache_value_512 > cache_value_256
-        assert cache_value_512 == pytest.approx(4.0 * cache_value_256, rel=0.01)
+        assert cache_value_512 == pytest.approx(2.0 * cache_value_256, rel=0.01)
 
 
 class TestLoadPenaltyCalculation:

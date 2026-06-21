@@ -181,11 +181,13 @@ class TestLoadDistribution:
         request = create_request("req1", ["h1"])
         decision = router.route(request)
 
-        # With scoring system, even moderate load, cache advantage (116.8 vs -0.3) keeps it on gpu0
-        # To test AFFINITY_DEGRADED, we'd need extreme congestion (see test_route_chooses_empty_over_cached_with_queue)
-        assert decision.instance_id == "gpu0"
-        assert decision.cache_hit is True
-        assert decision.strategy == RoutingStrategy.CACHE_HIT
+        # With new cache value formula (ratio-based, not time-based), cache benefit is smaller
+        # GPU0 score = 0.333 - 11.2 = -10.867
+        # GPU1 score = 0 - 0.3 = -0.3
+        # Moderate load on cache owner outweighs small cache benefit, route to gpu1
+        assert decision.instance_id == "gpu1"
+        assert decision.cache_hit is False
+        assert decision.strategy == RoutingStrategy.AFFINITY_DEGRADED
 
 
     def test_new_prefix_routes_to_least_loaded(self, telemetry_broker, router):

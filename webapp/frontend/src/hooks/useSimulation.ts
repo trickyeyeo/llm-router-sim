@@ -26,6 +26,7 @@ export interface SimulationParams {
   turns_per_session: number;
   failure_rate: number;
   network_type: string;
+  hbm_percent?: number;
   comparisonMode?: 'stateless_vs_stateful' | 'stateful_baseline_vs_with_p2p';
   baselineFailureRate?: number;
 }
@@ -59,6 +60,7 @@ export function useSimulation(params: SimulationParams, shouldRun: boolean) {
         params.turns_per_session,
         params.failure_rate,
         params.network_type,
+        params.hbm_percent || 0,
         'Stateless',
         'Stateful',
         setSimState,
@@ -72,6 +74,7 @@ export function useSimulation(params: SimulationParams, shouldRun: boolean) {
         params.baselineFailureRate || 0,
         params.failure_rate,
         params.network_type,
+        params.hbm_percent || 0,
         setSimState,
         setRunning
       );
@@ -86,6 +89,7 @@ function runSingleSimulation(
   turns: number,
   failureRate: number,
   networkType: string,
+  hbmPercent: number,
   leftLabel: string,
   rightLabel: string,
   setState: React.Dispatch<React.SetStateAction<SimState>>,
@@ -96,6 +100,7 @@ function runSingleSimulation(
     turns_per_session: turns.toString(),
     failure_rate: failureRate.toString(),
     network_type: networkType,
+    hbm_percent: hbmPercent.toString(),
   });
 
   const eventSource = new EventSource(`/simulate?${query}`);
@@ -151,6 +156,7 @@ function runBaselineAndWithP2P(
   baselineFailureRate: number,
   withP2pFailureRate: number,
   networkType: string,
+  hbmPercent: number,
   setState: React.Dispatch<React.SetStateAction<SimState>>,
   setRunning: React.Dispatch<React.SetStateAction<boolean>>
 ) {
@@ -162,6 +168,7 @@ function runBaselineAndWithP2P(
       turns_per_session: turns.toString(),
       failure_rate: baselineFailureRate.toString(),
       network_type: networkType,
+      hbm_percent: hbmPercent.toString(),
       enable_p2p_recovery: 'false',
     });
 
@@ -187,6 +194,7 @@ function runBaselineAndWithP2P(
       turns_per_session: turns.toString(),
       failure_rate: withP2pFailureRate.toString(),
       network_type: networkType,
+      hbm_percent: hbmPercent.toString(),
       enable_p2p_recovery: 'true',
     });
 

@@ -191,5 +191,6 @@ def create_gpu_instance_config(
         hbm_capacity_bytes=gpu_config.hbm_capacity_gb * 1024 * 1024 * 1024,
         prefill_throughput_tokens_per_sec=gpu_config.prefill_throughput_tokens_per_sec,
         decode_latency_per_token_ms=gpu_config.decode_latency_per_token_ms,
+        kv_cache_bytes_per_token=model_config.kv_cache_bytes_per_token,
         max_batch_size=gpu_config.max_batch_size,
     )
